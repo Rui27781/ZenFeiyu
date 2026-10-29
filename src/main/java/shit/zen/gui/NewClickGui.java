@@ -148,6 +148,7 @@ extends Screen {
         }
         if (this.searchBar.mouseClicked(mouseX, mouseY, button)) {
             this.themePopup.setOpen(false);
+            this.clearSettingFocus();
             return true;
         }
         if (this.themePopup.isOpen()) {
@@ -158,6 +159,7 @@ extends Screen {
 
         this.searchBar.setFocused(false);
         this.themePopup.setOpen(false);
+        this.clearSettingFocus();
         String query = this.getSearchQuery();
         for (CategoryPanel categoryPanel : categoryPanels) {
             categoryPanel.setSearchQuery(query);
@@ -219,6 +221,11 @@ extends Screen {
         if (this.searchBar.keyPressed(keyCode, scanCode, modifiers)) {
             return true;
         }
+        for (CategoryPanel categoryPanel : categoryPanels) {
+            if (!categoryPanel.isFilteredOut() && categoryPanel.keyPressed(keyCode, scanCode, modifiers)) {
+                return true;
+            }
+        }
         if (keyCode == 256) {
             if (!this.searchBar.getQuery().isEmpty()) {
                 this.searchBar.clear();
@@ -239,7 +246,18 @@ extends Screen {
         if (this.searchBar.charTyped(codePoint, modifiers)) {
             return true;
         }
+        for (CategoryPanel categoryPanel : categoryPanels) {
+            if (!categoryPanel.isFilteredOut() && categoryPanel.charTyped(codePoint, modifiers)) {
+                return true;
+            }
+        }
         return super.charTyped(codePoint, modifiers);
+    }
+
+    private void clearSettingFocus() {
+        for (CategoryPanel categoryPanel : categoryPanels) {
+            categoryPanel.clearSettingFocus();
+        }
     }
 
     /** Normalised search text used by the category panels for filtering. */

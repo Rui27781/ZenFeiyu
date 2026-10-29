@@ -10,6 +10,7 @@ import shit.zen.event.impl.Render2DEvent;
 import shit.zen.event.impl.TickEvent;
 import shit.zen.gui.IntroAnimation;
 import shit.zen.hud.HudElement;
+import shit.zen.hud.AttackTargetHud;
 import shit.zen.hud.KeyBindsHud;
 import shit.zen.hud.LieDetector;
 import shit.zen.hud.ModuleListHud;
@@ -27,6 +28,7 @@ public class HudManager {
 
     public void init() {
         this.registerHudElement(new TargetHud());
+        this.registerHudElement(new AttackTargetHud());
         this.registerHudElement(new KeyBindsHud());
         this.registerHudElement(new ModuleListHud());
         this.registerHudElement(new PlayerListHud());

@@ -15,6 +15,7 @@ import shit.zen.gui.newclickgui.ModeSettingElement;
 import shit.zen.gui.newclickgui.MultiSelectSettingElement;
 import shit.zen.gui.newclickgui.NumberSettingElement;
 import shit.zen.gui.newclickgui.SettingElement;
+import shit.zen.gui.newclickgui.StringSettingElement;
 import shit.zen.gui.newclickgui.UIElement;
 import shit.zen.modules.Module;
 import shit.zen.render.CustomFont;
@@ -24,6 +25,7 @@ import shit.zen.settings.impl.BooleanSetting;
 import shit.zen.settings.impl.ModeSetting;
 import shit.zen.settings.impl.MultiSelectSetting;
 import shit.zen.settings.impl.NumberSetting;
+import shit.zen.settings.impl.StringSetting;
 import shit.zen.utils.animation.SmoothAnimationTimer;
 import shit.zen.utils.math.Easings;
 import shit.zen.utils.misc.CursorUtil;
@@ -70,6 +72,10 @@ extends UIElement {
             }
             if (setting instanceof MultiSelectSetting multiSelectSetting) {
                 this.settingElements.add(new MultiSelectSettingElement(categoryPanel, multiSelectSetting));
+                continue;
+            }
+            if (setting instanceof StringSetting stringSetting) {
+                this.settingElements.add(new StringSettingElement(categoryPanel, stringSetting));
                 continue;
             }
             if (!(setting instanceof NumberSetting numberSetting)) continue;
@@ -192,6 +198,40 @@ extends UIElement {
             }
         }
         return false;
+    }
+
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (!this.isExpanded) {
+            return false;
+        }
+        for (SettingElement<?> settingElement : this.settingElements) {
+            if (settingElement instanceof StringSettingElement stringElement
+                    && stringElement.keyPressed(keyCode, scanCode, modifiers)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public boolean charTyped(char codePoint, int modifiers) {
+        if (!this.isExpanded) {
+            return false;
+        }
+        for (SettingElement<?> settingElement : this.settingElements) {
+            if (settingElement instanceof StringSettingElement stringElement
+                    && stringElement.charTyped(codePoint, modifiers)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public void clearSettingFocus() {
+        for (SettingElement<?> settingElement : this.settingElements) {
+            if (settingElement instanceof StringSettingElement stringElement) {
+                stringElement.setFocused(false);
+            }
+        }
     }
 
     @Override

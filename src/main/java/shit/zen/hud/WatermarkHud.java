@@ -8,6 +8,7 @@ import net.minecraft.client.multiplayer.ServerData;
 import net.minecraft.util.Mth;
 import shit.zen.ClientBase;
 import shit.zen.modules.impl.movement.Scaffold;
+import shit.zen.modules.impl.render.Watermark;
 import shit.zen.render.DrawContext;
 import shit.zen.render.FontPresets;
 import shit.zen.render.FontRenderer;
@@ -22,20 +23,34 @@ implements IHudElement {
     private static final int shadowColor = new Color(0, 0, 0, 100).getRGB();
     private static final float logoCharWidth = logoFont.getWidth("Z");
     private static final float separatorCharWidth = subFont.getWidth("|");
-    private static final float betaRawWidth = subFont.getWidth("beta");
     private static final float b1RawWidth = subFont.getWidth("b1");
-    private static final float sep1Width = Math.max(betaRawWidth, b1RawWidth);
-    private static final float betaWidth = logoCharWidth + separatorCharWidth * 2.0f + sep1Width + 48.0f;
     private static final float b1Width = logoFont.getMetrics().capHeight();
     private static final float subLineHeight = subFont.getMetrics().capHeight();
+    private static final String DEFAULT_ID = "cn78";
     private int lastTick = -1;
+    private String idText = DEFAULT_ID;
+    private float idRawWidth = subFont.getWidth(DEFAULT_ID);
+    private float sep1Width = Math.max(idRawWidth, b1RawWidth);
+    private float panelWidth = logoCharWidth + separatorCharWidth * 2.0f + sep1Width + 48.0f;
     private float maxSubWidth;
     private float line1Width;
     private float line2Width;
     private String line1Text;
     private String line2Text;
 
+    private void refreshId() {
+        String id = Watermark.INSTANCE != null ? Watermark.INSTANCE.getId() : DEFAULT_ID;
+        if (id.equals(this.idText)) {
+            return;
+        }
+        this.idText = id;
+        this.idRawWidth = subFont.getWidth(id);
+        this.sep1Width = Math.max(this.idRawWidth, b1RawWidth);
+        this.panelWidth = logoCharWidth + separatorCharWidth * 2.0f + this.sep1Width + 48.0f;
+    }
+
     private void updateCache() {
+        this.refreshId();
         if (mc == null || mc.player == null || this.lastTick == mc.player.tickCount) {
             return;
         }
@@ -63,7 +78,7 @@ implements IHudElement {
             return;
         }
         this.updateCache();
-        float totalWidth = betaWidth + this.maxSubWidth;
+        float totalWidth = this.panelWidth + this.maxSubWidth;
         float drawX = x + (width - totalWidth) / 2.0f - 1.0f;
         float centerY = y + height / 2.0f + 1.0f;
         int textColor = this.colorWithAlpha(Color.WHITE.getRGB(), alpha);
@@ -73,11 +88,11 @@ implements IHudElement {
             this.drawText(drawContext, paint, "Z", drawX, centerY + 4.0f, logoFont, b1Width, textColor, shadow, true);
             drawX += logoCharWidth + 12.0f;
             this.drawText(drawContext, paint, "|", (drawX += 12.0f) - 13.0f, centerY, subFont, subLineHeight, subColor, shadow, true);
-            float betaX = (drawX += separatorCharWidth + 12.0f) + (sep1Width - betaRawWidth) / 2.0f - 13.0f;
-            float b1X = drawX + (sep1Width - b1RawWidth) / 2.0f - 13.0f;
-            this.drawText(drawContext, paint, "beta", betaX, centerY - 2.0f, subFont, 0.0f, textColor, shadow, false);
+            float idX = (drawX += separatorCharWidth + 12.0f) + (this.sep1Width - this.idRawWidth) / 2.0f - 13.0f;
+            float b1X = drawX + (this.sep1Width - b1RawWidth) / 2.0f - 13.0f;
+            this.drawText(drawContext, paint, this.idText, idX, centerY - 2.0f, subFont, 0.0f, textColor, shadow, false);
             this.drawText(drawContext, paint, "b1", b1X, centerY + 7.0f, subFont, 0.0f, subColor, shadow, false);
-            drawX += sep1Width;
+            drawX += this.sep1Width;
             this.drawText(drawContext, paint, "|", (drawX += 12.0f) - 13.0f, centerY, subFont, subLineHeight, subColor, shadow, true);
             float line1X = (drawX += separatorCharWidth + 12.0f) + (this.maxSubWidth - this.line1Width) / 2.0f - 13.0f;
             float line2X = drawX + (this.maxSubWidth - this.line2Width) / 2.0f - 13.0f;
@@ -99,7 +114,7 @@ implements IHudElement {
 
     private float getX() {
         this.updateCache();
-        return betaWidth + this.maxSubWidth;
+        return this.panelWidth + this.maxSubWidth;
     }
 
     @Override

@@ -7,15 +7,24 @@ import shit.zen.hud.NeverloseWatermark;
 import shit.zen.modules.Category;
 import shit.zen.modules.Module;
 import shit.zen.settings.impl.ModeSetting;
+import shit.zen.settings.impl.StringSetting;
 import shit.zen.event.EventTarget;
 
 public class Watermark extends Module {
+    public static Watermark INSTANCE;
     final ModeSetting styleSetting = new ModeSetting("Style", "Neverlose", "DynamicIsland").withDefault("DynamicIsland");
+    private final StringSetting idSetting = new StringSetting("ID", "cn78", 16).withDefault("cn78");
     private final DynamicIsland dynamicIsland = new DynamicIsland();
     private final NeverloseWatermark neverloseWatermark = new NeverloseWatermark();
 
     public Watermark() {
         super("Watermark", Category.RENDER);
+        INSTANCE = this;
+    }
+
+    public String getId() {
+        String id = this.idSetting.getValue();
+        return id == null || id.isBlank() ? "cn78" : id.trim();
     }
 
     @EventTarget

@@ -104,10 +104,10 @@ MainWindow::MainWindow(QWidget* parent)
 
 void MainWindow::buildUi() {
 #ifdef OPENZEN_BUILD_REVISION
-    const QString displayTitle = QStringLiteral("OpenZen Loader  ·  build %1")
+    const QString displayTitle = QStringLiteral("OpenZenFeiyu Loader  ·  build %1")
             .arg(QString::fromLatin1(OPENZEN_BUILD_REVISION).left(7));
 #else
-    const QString displayTitle = QStringLiteral("OpenZen Loader");
+    const QString displayTitle = QStringLiteral("OpenZenFeiyu Loader");
 #endif
     // The OS-level window title (what GetWindowTextW and window scanners read) is
     // randomised on every launch so it can't be matched against a fixed string.
@@ -136,7 +136,7 @@ void MainWindow::buildUi() {
     title->setObjectName("title");
 
     hint_ = new QLabel(
-        QStringLiteral("Click Inject on the instance you want to load OpenZen into. "
+        QStringLiteral("Click Inject on the instance you want to load OpenZenFeiyu into. "
                        "List refreshes every second."),
         body);
     hint_->setObjectName("hint");

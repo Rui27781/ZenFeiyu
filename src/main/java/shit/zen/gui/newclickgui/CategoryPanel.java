@@ -234,6 +234,30 @@ extends UIElement {
         return true;
     }
 
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        for (ModuleElement moduleElement : this.getVisibleModules()) {
+            if (moduleElement.keyPressed(keyCode, scanCode, modifiers)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public boolean charTyped(char codePoint, int modifiers) {
+        for (ModuleElement moduleElement : this.getVisibleModules()) {
+            if (moduleElement.charTyped(codePoint, modifiers)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public void clearSettingFocus() {
+        for (ModuleElement moduleElement : this.moduleElements) {
+            moduleElement.clearSettingFocus();
+        }
+    }
+
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollDelta) {
         if (this.isFilteredOut()) {

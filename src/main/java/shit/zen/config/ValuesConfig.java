@@ -15,6 +15,7 @@ import shit.zen.settings.impl.BooleanSetting;
 import shit.zen.settings.impl.ModeSetting;
 import shit.zen.settings.impl.MultiSelectSetting;
 import shit.zen.settings.impl.NumberSetting;
+import shit.zen.settings.impl.StringSetting;
 
 public class ValuesConfig
 extends Config {
@@ -30,14 +31,14 @@ extends Config {
         while ((string = bufferedReader.readLine()) != null) {
             try {
                 String[] stringArray = string.split(":", 4);
-                if (stringArray.length != 4) {
+                if (stringArray.length < 3) {
                     LOGGER.error("Failed to read line {}!", string);
                     continue;
                 }
                 String string2 = stringArray[0];
                 String string3 = stringArray[1];
                 String string4 = stringArray[2];
-                String string5 = stringArray[3];
+                String string5 = stringArray.length >= 4 ? stringArray[3] : "";
                 Module module = ZenClient.getInstance().getModuleManager().getModule(string3);
                 if (module == null) continue;
                 String string6 = string;
@@ -82,6 +83,9 @@ extends Config {
                                 modeSetting.setValue(string5);
                             }
                             break;
+                        case "S":
+                            ((StringSetting) setting).setValue(string5);
+                            break;
                         default:
                             LOGGER.error("Unknown value type of {}!", string3);
                     }
@@ -109,6 +113,9 @@ extends Config {
                         bufferedWriter.write(String.format((String)"M:%s:%s:%s\n", (Object[])new Object[]{module.getName(), modeSetting.getName(), modeSetting.getValue()}));
                     } else if (setting instanceof MultiSelectSetting multiSelectSetting) {
                         bufferedWriter.write(String.format((String)"MV:%s:%s:%s\n", (Object[])new Object[]{module.getName(), multiSelectSetting.getName(), String.join(",", multiSelectSetting.getValue())}));
+                    } else if (setting instanceof StringSetting stringSetting) {
+                        String value = stringSetting.getValue() == null ? "" : stringSetting.getValue().replace("\n", " ").replace("\r", " ");
+                        bufferedWriter.write(String.format((String)"S:%s:%s:%s\n", (Object[])new Object[]{module.getName(), stringSetting.getName(), value}));
                     } else {
                         LOGGER.error("Unknown value type of {}!", setting.getName());
                     }

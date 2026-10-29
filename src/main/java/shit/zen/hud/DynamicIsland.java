@@ -4,10 +4,12 @@ import java.awt.Color;
 import java.util.Arrays;
 import java.util.List;
 
+import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.util.Mth;
 import shit.zen.ClientBase;
 import shit.zen.event.impl.Render2DEvent;
 import shit.zen.render.Paint;
+import shit.zen.render.Rectangle;
 import shit.zen.render.Renderer;
 import shit.zen.render.RoundedRectangle;
 import shit.zen.utils.animation.SpringAnimation;
@@ -97,13 +99,37 @@ public class DynamicIsland {
         final float finalY = islandY;
         final float finalCornerRadius = outgoingY;
         if (this.activeElement.hasBackground()) {
+            PoseStack poseStack = render2DEvent.poseStack();
+            poseStack.pushPose();
+            RenderUtil.drawBlurredRect(poseStack, islandX, finalY, islandWidth, islandHeight, finalCornerRadius, 16.0f, 0.9f, 0);
+            poseStack.popPose();
             Renderer.renderConsumer((drawContext -> {
+                RoundedRectangle panel = RoundedRectangle.ofXYWHR(islandX, finalY, islandWidth, islandHeight, finalCornerRadius);
+                // Liquid-glass base: translucent dark tint over the blurred backdrop.
                 try (Paint paint = new Paint()){
-                    paint.setColor(new Color(0, 0, 0, 40).getRGB());
-                    drawContext.drawRoundedRect(RoundedRectangle.ofXYWHR(islandX, finalY, islandWidth, islandHeight, finalCornerRadius), paint);
+                    paint.setColor(new Color(16, 18, 24, 118).getRGB());
+                    drawContext.drawRoundedRect(panel, paint);
+                }
+                // Soft white sheen fading from the top edge.
+                drawContext.save();
+                drawContext.clipRoundedRect(panel, true);
+                try (Paint sheen = new Paint()){
+                    sheen.setGradCoords(new Paint.GradientCoords(islandX, finalY, islandX, finalY + islandHeight * 0.7f,
+                            new Color(255, 255, 255, 46).getRGB(), new Color(255, 255, 255, 0).getRGB()));
+                    drawContext.drawRect(Rectangle.ofXYWH(islandX, finalY, islandWidth, islandHeight * 0.7f), sheen);
+                }
+                drawContext.restore();
+                // Hairline rim to sell the glass edge.
+                try (Paint rim = new Paint()){
+                    rim.setColor(new Color(255, 255, 255, 60).getRGB());
+                    rim.setStrokeCap(Paint.StrokeCap.STROKE);
+                    rim.setStrokeWidth(1.0f);
+                    drawContext.drawRoundedRect(RoundedRectangle.ofXYWHR(islandX + 0.5f, finalY + 0.5f,
+                            Math.max(0.0f, islandWidth - 1.0f), Math.max(0.0f, islandHeight - 1.0f),
+                            Math.max(1.0f, finalCornerRadius - 0.5f)), rim);
                 }
                 drawContext.save();
-                drawContext.clipRoundedRect(RoundedRectangle.ofXYWHR(islandX, finalY, islandWidth, islandHeight, finalCornerRadius), true);
+                drawContext.clipRoundedRect(panel, true);
                 this.activeElement.render(drawContext, islandX, finalY, islandWidth, islandHeight, progress);
                 drawContext.restore();
             }));
