@@ -18,8 +18,7 @@ import shit.zen.utils.misc.ReflectionUtil;
 @Patch(FriendlyByteBuf.class)
 public class FriendlyByteBufPatch extends ClientBase {
     public static MutableComponent readUtfWithNameProtection(String json) {
-        String filtered = NameProtect.replacePlayerName(json);
-        return Component.Serializer.fromJson(filtered);
+        return Component.Serializer.fromJson(NameProtect.protectComponentJson(json));
     }
 
     @Transform(method = "readComponent", desc = "()Lnet/minecraft/network/chat/Component;")

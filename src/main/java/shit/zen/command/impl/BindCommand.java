@@ -1,6 +1,7 @@
 package shit.zen.command.impl;
 
 import com.mojang.blaze3d.platform.InputConstants;
+import java.util.Locale;
 import shit.zen.ZenClient;
 import shit.zen.command.Command;
 import shit.zen.event.EventTarget;
@@ -79,7 +80,7 @@ extends Command {
                 ZenClient.getInstance().getConfigManager().saveAll();
                 return;
             }
-            InputConstants.Key key = InputConstants.getKey("key.keyboard." + keyName.toLowerCase());
+            InputConstants.Key key = BindCommand.parseKey(keyName);
             if (key == InputConstants.UNKNOWN) {
                 ChatUtil.print("Invalid key.");
                 return;
@@ -89,6 +90,70 @@ extends Command {
             ZenClient.getInstance().getConfigManager().saveAll();
         } catch (ModuleNotFoundException e) {
             ChatUtil.print("Invalid module.");
+        }
+    }
+
+    /**
+     * Resolves a user supplied key name. {@link InputConstants#getKey(String)}
+     * throws {@link NumberFormatException} for anything it does not know, so the
+     * lookup is guarded and common aliases are normalised first.
+     */
+    private static InputConstants.Key parseKey(String keyName) {
+        String name = keyName == null ? "" : keyName.trim().toLowerCase(Locale.ROOT);
+        if (name.isEmpty()) {
+            return InputConstants.UNKNOWN;
+        }
+        if (name.chars().allMatch(Character::isDigit)) {
+            try {
+                return InputConstants.Type.KEYSYM.getOrCreate(Integer.parseInt(name));
+            } catch (NumberFormatException e) {
+                return InputConstants.UNKNOWN;
+            }
+        }
+        try {
+            return InputConstants.getKey("key.keyboard." + BindCommand.normalizeKeyName(name));
+        } catch (Exception e) {
+            return InputConstants.UNKNOWN;
+        }
+    }
+
+    private static String normalizeKeyName(String name) {
+        switch (name) {
+            case "rshift":
+            case "rightshift":
+                return "right.shift";
+            case "lshift":
+            case "leftshift":
+                return "left.shift";
+            case "rctrl":
+            case "rightctrl":
+                return "right.control";
+            case "lctrl":
+            case "leftctrl":
+            case "ctrl":
+                return "left.control";
+            case "ralt":
+            case "rightalt":
+                return "right.alt";
+            case "lalt":
+            case "leftalt":
+            case "alt":
+                return "left.alt";
+            case "esc":
+                return "escape";
+            case "del":
+                return "delete";
+            case "ins":
+                return "insert";
+            case "pgup":
+                return "page.up";
+            case "pgdn":
+            case "pgdown":
+                return "page.down";
+            case "return":
+                return "enter";
+            default:
+                return name;
         }
     }
 

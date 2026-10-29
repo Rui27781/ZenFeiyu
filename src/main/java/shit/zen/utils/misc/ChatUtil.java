@@ -16,8 +16,11 @@ extends ClientBase {
         ChatUtil.print(true, message);
     }
 
+    /** Chat prefix shown in front of every client message, e.g. {@code [大肥鱼] }. */
+    private static final String PREFIX = "§7[§b大肥鱼§7] ";
+
     public static void print(boolean withPrefix, String message) {
-        ChatUtil.addMessage(Component.nullToEmpty((withPrefix ? "§7[§b§7] " : "") + message));
+        ChatUtil.addMessage(Component.nullToEmpty((withPrefix ? PREFIX : "") + message));
     }
 
     @Generated

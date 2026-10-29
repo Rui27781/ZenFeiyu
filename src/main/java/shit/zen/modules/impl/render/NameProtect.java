@@ -1,6 +1,12 @@
 package shit.zen.modules.impl.render;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.google.gson.JsonPrimitive;
 import java.util.ArrayList;
+import java.util.Map;
 import java.util.Random;
 import net.minecraft.client.multiplayer.PlayerInfo;
 import net.minecraft.network.chat.Component;
@@ -45,6 +51,93 @@ extends Module {
             return StringUtils.replace(string, string2, string3);
         }
         return string;
+    }
+
+    /**
+     * Replaces the local player's name inside a serialised chat component without
+     * touching JSON keys. Replacing raw JSON would corrupt keys such as
+     * {@code extra}/{@code translate}/{@code text} whenever the player name is a
+     * substring of them (e.g. a one-letter name like {@code a}).
+     *
+     * @param json serialised {@link Component} JSON
+     * @return the rewritten JSON, or the original string when nothing changed
+     */
+    public static String protectComponentJson(String json) {
+        if (json == null || json.isEmpty() || INSTANCE == null || !INSTANCE.isEnabled() || mc.player == null) {
+            return json;
+        }
+        String target = mc.player.getName().getString();
+        if (target.isEmpty()) {
+            return json;
+        }
+        String replacement = INSTANCE.generateRandomName();
+        if (replacement == null || replacement.equals(target)) {
+            return json;
+        }
+        try {
+            JsonElement root = JsonParser.parseString(json);
+            if (isText(root)) {
+                String text = root.getAsString();
+                if (!text.contains(target)) {
+                    return json;
+                }
+                root = new JsonPrimitive(StringUtils.replace(text, target, replacement));
+            } else if (!protectElement(root, target, replacement)) {
+                return json;
+            }
+            return root.toString();
+        } catch (Exception exception) {
+            logger.error("Failed to protect component JSON", exception);
+            return json;
+        }
+    }
+
+    private static boolean protectElement(JsonElement element, String target, String replacement) {
+        if (element == null) {
+            return false;
+        }
+        if (element.isJsonObject()) {
+            return protectObject(element.getAsJsonObject(), target, replacement);
+        }
+        if (element.isJsonArray()) {
+            JsonArray array = element.getAsJsonArray();
+            boolean changed = false;
+            for (int i = 0; i < array.size(); i++) {
+                JsonElement child = array.get(i);
+                if (isText(child)) {
+                    String text = child.getAsString();
+                    if (text.contains(target)) {
+                        array.set(i, new JsonPrimitive(StringUtils.replace(text, target, replacement)));
+                        changed = true;
+                    }
+                    continue;
+                }
+                changed |= protectElement(child, target, replacement);
+            }
+            return changed;
+        }
+        return false;
+    }
+
+    private static boolean protectObject(JsonObject object, String target, String replacement) {
+        boolean changed = false;
+        for (Map.Entry<String, JsonElement> entry : object.entrySet()) {
+            JsonElement value = entry.getValue();
+            if ("text".equals(entry.getKey()) && isText(value)) {
+                String text = value.getAsString();
+                if (text.contains(target)) {
+                    entry.setValue(new JsonPrimitive(StringUtils.replace(text, target, replacement)));
+                    changed = true;
+                }
+                continue;
+            }
+            changed |= protectElement(value, target, replacement);
+        }
+        return changed;
+    }
+
+    private static boolean isText(JsonElement element) {
+        return element != null && element.isJsonPrimitive() && element.getAsJsonPrimitive().isString();
     }
 
     public static String getProtectedName() {
