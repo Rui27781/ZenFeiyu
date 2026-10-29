@@ -32,7 +32,7 @@ public class EntityPatch {
     }
 
     @Inject(method = "push", desc = "(Lnet/minecraft/world/entity/Entity;)V", at = @At(At.Type.HEAD))
-    public static void onPush(Entity entity, CallbackInfo callbackInfo) {
+    public static void onPush(Entity entity, Entity pusher, CallbackInfo callbackInfo) {
         if (!ZenClient.isReady() || entity != ClientBase.mc.player || entity.isInWater()) return;
         SneakEvent event = new SneakEvent();
         ZenClient.getInstance().getEventBus().call(event);

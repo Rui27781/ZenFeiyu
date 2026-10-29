@@ -80,7 +80,7 @@ public class MinecraftPatch {
     }
 
     @Inject(method = "setLevel", desc = "(Lnet/minecraft/client/multiplayer/ClientLevel;)V")
-    public static void onSetLevel(ClientLevel level, CallbackInfo callbackInfo) {
+    public static void onSetLevel(Minecraft minecraft, ClientLevel level, CallbackInfo callbackInfo) {
         if (ZenClient.isReady()) {
             ZenClient.getInstance().getEventBus().call(new DisconnectEvent());
         }

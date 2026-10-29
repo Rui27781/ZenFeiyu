@@ -8,9 +8,10 @@ import com.google.gson.JsonPrimitive;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.Random;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import net.minecraft.client.multiplayer.PlayerInfo;
 import net.minecraft.network.chat.Component;
-import org.apache.commons.lang3.StringUtils;
 import shit.zen.ZenClient;
 import shit.zen.event.impl.ChatReceiveEvent;
 import shit.zen.event.impl.DisconnectEvent;
@@ -48,9 +49,22 @@ extends Module {
         String string2 = mc.player.getName().getString();
         String string3 = INSTANCE.generateRandomName();
         if (string3 != null && !string3.equals(string2) && string.contains(string2)) {
-            return StringUtils.replace(string, string2, string3);
+            return NameProtect.replaceNameToken(string, string2, string3);
         }
         return string;
+    }
+
+    /**
+     * Replaces {@code target} only when it appears as a standalone player name.
+     * Substring replacement would rewrite unrelated words when the name is short
+     * (e.g. a player called {@code a} turning "game" into "gSomeName").
+     */
+    private static String replaceNameToken(String text, String target, String replacement) {
+        if (text == null || text.isEmpty() || target.isEmpty() || !text.contains(target)) {
+            return text;
+        }
+        Pattern pattern = Pattern.compile("(?<![A-Za-z0-9_\\u00a7])" + Pattern.quote(target) + "(?![A-Za-z0-9_])");
+        return pattern.matcher(text).replaceAll(Matcher.quoteReplacement(replacement));
     }
 
     /**
@@ -81,7 +95,7 @@ extends Module {
                 if (!text.contains(target)) {
                     return json;
                 }
-                root = new JsonPrimitive(StringUtils.replace(text, target, replacement));
+                root = new JsonPrimitive(NameProtect.replaceNameToken(text, target, replacement));
             } else if (!protectElement(root, target, replacement)) {
                 return json;
             }
@@ -107,7 +121,7 @@ extends Module {
                 if (isText(child)) {
                     String text = child.getAsString();
                     if (text.contains(target)) {
-                        array.set(i, new JsonPrimitive(StringUtils.replace(text, target, replacement)));
+                        array.set(i, new JsonPrimitive(NameProtect.replaceNameToken(text, target, replacement)));
                         changed = true;
                     }
                     continue;
@@ -126,7 +140,7 @@ extends Module {
             if ("text".equals(entry.getKey()) && isText(value)) {
                 String text = value.getAsString();
                 if (text.contains(target)) {
-                    entry.setValue(new JsonPrimitive(StringUtils.replace(text, target, replacement)));
+                    entry.setValue(new JsonPrimitive(NameProtect.replaceNameToken(text, target, replacement)));
                     changed = true;
                 }
                 continue;
