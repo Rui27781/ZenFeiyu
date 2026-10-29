@@ -46,10 +46,14 @@ extends Module {
         if (mc.player == null) {
             return string;
         }
-        String string2 = mc.player.getName().getString();
-        String string3 = INSTANCE.generateRandomName();
-        if (string3 != null && !string3.equals(string2) && string.contains(string2)) {
-            return NameProtect.replaceNameToken(string, string2, string3);
+        try {
+            String string2 = mc.player.getName().getString();
+            String string3 = INSTANCE.generateRandomName();
+            if (string3 != null && !string3.equals(string2) && string.contains(string2)) {
+                return NameProtect.replaceNameToken(string, string2, string3);
+            }
+        } catch (Exception exception) {
+            logger.error("Failed to replace player name", exception);
         }
         return string;
     }
@@ -80,15 +84,15 @@ extends Module {
         if (json == null || json.isEmpty() || INSTANCE == null || !INSTANCE.isEnabled() || mc.player == null) {
             return json;
         }
-        String target = mc.player.getName().getString();
-        if (target.isEmpty()) {
-            return json;
-        }
-        String replacement = INSTANCE.generateRandomName();
-        if (replacement == null || replacement.equals(target)) {
-            return json;
-        }
         try {
+            String target = mc.player.getName().getString();
+            if (target.isEmpty()) {
+                return json;
+            }
+            String replacement = INSTANCE.generateRandomName();
+            if (replacement == null || replacement.equals(target)) {
+                return json;
+            }
             JsonElement root = JsonParser.parseString(json);
             if (isText(root)) {
                 String text = root.getAsString();
