@@ -8,6 +8,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import shit.zen.event.EventTarget;
 import shit.zen.event.impl.EntityHurtEvent;
+import shit.zen.event.impl.EntityRemoveEvent;
 import shit.zen.event.impl.GlRenderEvent;
 import shit.zen.event.impl.Render2DEvent;
 import shit.zen.modules.impl.combat.KillAura;
@@ -23,17 +24,19 @@ import shit.zen.utils.math.Easings;
 import shit.zen.utils.render.RenderUtil;
 
 /**
- * Floating panel that follows the entity the player last attacked (or the
- * current KillAura target). Shows the head, name, health and distance.
- * While a chat screen is open the local player is previewed, which also
- * makes the panel draggable through the regular HUD drag path.
+ * Floating panel that follows the entity the player last attacked. It works
+ * for manual attacks as well as KillAura and stays on screen for the whole
+ * fight (not only while KillAura is enabled). Shows the head, name, health
+ * and distance. While a chat screen is open the local player is previewed,
+ * which also makes the panel draggable through the regular HUD drag path.
  */
 public class AttackTargetHud
 extends HudElement {
     private static final float PANEL_WIDTH = 150.0f;
     private static final float PANEL_HEIGHT = 44.0f;
     private static final float HEAD_SIZE = 30.0f;
-    private static final long LINGER_MS = 4000L;
+    private static final long LINGER_MS = 10000L;
+    private static final long ATTACK_ANIM_MS = 400L;
     private static final FontRenderer nameFont = FontPresets.pingfang(14.0f);
     private static final FontRenderer valueFont = FontPresets.poppinsMedium(11.0f);
 
@@ -64,7 +67,29 @@ extends HudElement {
         if (source != mc.player) {
             return;
         }
-        this.target = entityHurtEvent.entity();
+        this.trackTarget(entityHurtEvent.entity());
+    }
+
+    /**
+     * Fired from {@code Player#attack}, so manual left-clicks are tracked even
+     * when KillAura is disabled (or when the hit deals no damage, e.g. shields).
+     */
+    @EventTarget
+    public void onAttack(EntityRemoveEvent entityRemoveEvent) {
+        if (mc.player == null || entityRemoveEvent.dead()) {
+            return;
+        }
+        if (!(entityRemoveEvent.entity() instanceof LivingEntity living) || living == mc.player) {
+            return;
+        }
+        this.trackTarget(living);
+    }
+
+    private void trackTarget(Entity entity) {
+        if (!(entity instanceof LivingEntity living) || !living.isAlive()) {
+            return;
+        }
+        this.target = living;
         this.lastAttackTime = System.currentTimeMillis();
     }
 
@@ -76,7 +101,8 @@ extends HudElement {
             return aimed;
         }
         long now = System.currentTimeMillis();
-        if (this.target != null && this.target.isAlive() && now - this.lastAttackTime < LINGER_MS) {
+        if (this.target != null && this.target.isAlive() && !this.target.isRemoved()
+                && now - this.lastAttackTime < LINGER_MS) {
             return this.target;
         }
         return null;
@@ -103,8 +129,9 @@ extends HudElement {
         this.healthAnim.animate(healthRatio, 0.35, Easings.EASE_OUT_POW3);
         this.healthAnim.tick();
 
-        // Check if currently attacking this target
-        boolean isAttacking = KillAura.aimingTarget == target;
+        // Shake/blur while this target is being attacked (manual or KillAura).
+        boolean isAttacking = target == this.target
+                && System.currentTimeMillis() - this.lastAttackTime < ATTACK_ANIM_MS;
         if (isAttacking && !this.wasAttacking) {
             // Just started attacking - trigger shake and blur
             this.headShakeAnim.animate(1.0, 0.15, Easings.EASE_OUT_ELASTIC);
