@@ -45,7 +45,7 @@ public class MusicPlayer extends Module {
     };
 
     public MusicPlayer() {
-        super("MusicPlayer", Category.CLIENT);
+        super("musicplayer", Category.CLIENT);
         INSTANCE = this;
     }
 
