@@ -25,17 +25,18 @@ import shit.zen.utils.render.RenderUtil;
 
 /**
  * Floating panel that follows the entity the player last attacked. It works
- * for manual attacks as well as KillAura and stays on screen for the whole
- * fight (not only while KillAura is enabled). Shows the head, name, health
- * and distance. While a chat screen is open the local player is previewed,
- * which also makes the panel draggable through the regular HUD drag path.
+ * for manual attacks as well as KillAura and stays on screen for 2 seconds
+ * after the last hit (not only while KillAura is enabled). Shows the head,
+ * name, health and distance. While a chat screen is open the local player is
+ * previewed, which also makes the panel draggable through the regular HUD
+ * drag path.
  */
 public class AttackTargetHud
 extends HudElement {
     private static final float PANEL_WIDTH = 150.0f;
     private static final float PANEL_HEIGHT = 44.0f;
     private static final float HEAD_SIZE = 30.0f;
-    private static final long LINGER_MS = 10000L;
+    private static final long LINGER_MS = 2000L;
     private static final long ATTACK_ANIM_MS = 400L;
     private static final FontRenderer nameFont = FontPresets.pingfang(14.0f);
     private static final FontRenderer valueFont = FontPresets.poppinsMedium(11.0f);
