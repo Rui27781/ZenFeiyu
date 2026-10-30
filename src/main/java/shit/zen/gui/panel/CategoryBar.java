@@ -24,7 +24,7 @@ extends ClientBase {
     public void render(GuiGraphics guiGraphics, int originX, int originY, int mouseX, int mouseY, float scale, float alpha) {
         try {
             int iconSize = (int)(20.0f * scale);
-            int iconSpacing = (int)(25.0f * scale);
+            int iconSpacing = this.iconSpacing(scale);
             int verticalOffset = (int)(80.0f * scale);
             float iconFontSize = 24.0f * scale;
             int horizontalOffset = (int)(420.0f * scale);
@@ -98,7 +98,7 @@ extends ClientBase {
 
     public boolean onMouseClick(int originX, int originY, int mouseX, int mouseY, float scale) {
         int iconSize = (int)(20.0f * scale);
-        int iconSpacing = (int)(25.0f * scale);
+        int iconSpacing = this.iconSpacing(scale);
         int verticalOffset = (int)(80.0f * scale);
         int horizontalOffset = (int)(420.0f * scale);
         int baseX = originX + horizontalOffset;
@@ -125,7 +125,7 @@ extends ClientBase {
 
     public boolean isMouseOverAnyCategory(int originX, int originY, int mouseX, int mouseY, float scale) {
         int iconSize = (int)(20.0f * scale);
-        int iconSpacing = (int)(25.0f * scale);
+        int iconSpacing = this.iconSpacing(scale);
         int verticalOffset = (int)(80.0f * scale);
         int horizontalOffset = (int)(420.0f * scale);
         int baseX = originX + horizontalOffset;
@@ -142,8 +142,19 @@ extends ClientBase {
 
     public int getTotalWidth(float scale) {
         int iconSize = (int)(20.0f * scale);
-        int iconSpacing = (int)(25.0f * scale);
+        int iconSpacing = this.iconSpacing(scale);
         return (Category.values().length - 1) * iconSpacing + iconSize;
+    }
+
+    /**
+     * Keeps all category icons inside the 600px panel even after categories
+     * were added: seven icons can use the original 25px spacing, more icons
+     * are packed into the remaining horizontal space.
+     */
+    private int iconSpacing(float scale) {
+        int count = Math.max(1, Category.values().length - 1);
+        float spacing = Math.min(25.0f, 158.0f / (float)count);
+        return (int)(spacing * scale);
     }
 
     public int getCategoryHeight(float scale) {
@@ -158,5 +169,6 @@ extends ClientBase {
         CATEGORY_ICONS.put(Category.EXPLOIT, "\uE894");
         CATEGORY_ICONS.put(Category.WORLD, "\uE5D3");
         CATEGORY_ICONS.put(Category.MISC, "\uE24D");
+        CATEGORY_ICONS.put(Category.CLIENT, "\uE405");
     }
 }

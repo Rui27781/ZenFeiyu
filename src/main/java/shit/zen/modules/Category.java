@@ -7,7 +7,8 @@ public enum Category {
     RENDER("Render"),
     EXPLOIT("World"),
     WORLD("Misc"),
-    MISC("Ghost");
+    MISC("Ghost"),
+    CLIENT("Client");
 
     public String displayName;
 

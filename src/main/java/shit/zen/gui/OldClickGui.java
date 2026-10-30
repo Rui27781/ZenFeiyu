@@ -26,7 +26,14 @@ extends Screen {
 
     public void init() {
         super.init();
+        // Keep the row on screen after the Client category was added. The
+        // original 20px left margin is used when there is enough room.
+        int totalWidth = this.categoryPanels.size() * 140 + Math.max(0, this.categoryPanels.size() - 1) * 20;
+        int startX = Math.min(20, Math.max(8, this.width - totalWidth - 8));
+        int x = startX;
         for (CategoryPanel categoryPanel : this.categoryPanels) {
+            categoryPanel.x = x;
+            x += 160;
             for (ModuleButton moduleButton : categoryPanel.moduleButtons) {
                 moduleButton.reset();
             }

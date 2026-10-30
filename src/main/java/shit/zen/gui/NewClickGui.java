@@ -47,11 +47,21 @@ extends Screen {
     protected void init() {
         super.init();
         focusedPanel = categoryPanels.get(0);
-        float panelX = (float)this.width / 2.0f - 380.0f;
+        // Panels are 120px wide. Keep the 8px gutter when there is room, but
+        // shrink the gutter (never the panel) on narrow resolutions and centre
+        // the whole row instead of anchoring it to a fixed offset.
+        float gutter = 8.0f;
+        float available = Math.max(120.0f, (float)this.width - 8.0f);
+        int gaps = Math.max(1, categoryPanels.size() - 1);
+        if (categoryPanels.size() * 120.0f + gaps * gutter > available) {
+            gutter = Math.max(0.0f, (available - 120.0f * categoryPanels.size()) / (float)gaps);
+        }
+        float totalWidth = categoryPanels.size() * 120.0f + gaps * gutter;
+        float panelX = ((float)this.width - totalWidth) / 2.0f;
         for (CategoryPanel categoryPanel : categoryPanels) {
             categoryPanel.setX(panelX);
             categoryPanel.setY(PANEL_Y);
-            panelX += 128.0f;
+            panelX += 120.0f + gutter;
         }
 
         this.searchBar.setWidth(300.0f);

@@ -8,6 +8,7 @@ import shit.zen.utils.misc.Assets;
 public class FontStore {
     public static CustomFont OPENSANS_16 = loadFont(16.0f, "opensans.ttf");
     public static CustomFont OPENSANS_18 = loadFont(18.0f, "opensans.ttf");
+    public static CustomFont PINGFANG_12 = loadFont(12.0f, "pingfang_sc_regular.ttf");
     public static CustomFont PINGFANG_16 = loadFont(16.0f, "pingfang_sc_regular.ttf");
     public static CustomFont PINGFANG_18 = loadFont(18.0f, "pingfang_sc_regular.ttf");
     public static CustomFont ICON_18 = loadFont(18.0f, "icon.ttf");

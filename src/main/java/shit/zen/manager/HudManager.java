@@ -14,6 +14,7 @@ import shit.zen.hud.AttackTargetHud;
 import shit.zen.hud.KeyBindsHud;
 import shit.zen.hud.LieDetector;
 import shit.zen.hud.ModuleListHud;
+import shit.zen.hud.MusicHud;
 import shit.zen.hud.PlayerListHud;
 import shit.zen.hud.PotionEffectsHud;
 import shit.zen.hud.TargetHud;
@@ -29,6 +30,7 @@ public class HudManager {
     public void init() {
         this.registerHudElement(new TargetHud());
         this.registerHudElement(new AttackTargetHud());
+        this.registerHudElement(new MusicHud());
         this.registerHudElement(new KeyBindsHud());
         this.registerHudElement(new ModuleListHud());
         this.registerHudElement(new PlayerListHud());

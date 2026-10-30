@@ -172,6 +172,10 @@ dependencies {
     implementation 'org.ow2.asm:asm-commons:9.6'
     implementation 'org.ow2.asm:asm-util:9.6'
 
+    // JLayer — pure-Java MP3 decoder used by the built-in music player.
+    // Bundled into the mod jar below so it is available from the game classpath.
+    implementation files('libs/jlayer-1.0.1.jar')
+
     // Dev Auth
     runtimeOnly("me.djtheredstoner:DevAuth-forge-latest:1.2.2")
 
@@ -228,6 +232,15 @@ tasks.named('jar', Jar).configure {
                 'Can-Redefine-Classes'    : 'true'
         ])
     }
+
+    // Bundle JLayer (MP3 decoder) classes into the mod jar. The player uses them
+    // directly, so they must ship with the mod rather than sit on a compile-only
+    // classpath. Signatures are excluded because the jar is later rewritten by
+    // the class-name obfuscation step.
+    from({ zipTree('libs/jlayer-1.0.1.jar') }) {
+        exclude 'META-INF/**'
+    }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 
     // This is the preferred method to reobfuscate your jar file
     finalizedBy 'reobfJar'

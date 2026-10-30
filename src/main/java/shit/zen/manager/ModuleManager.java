@@ -21,6 +21,7 @@ import shit.zen.modules.impl.combat.Backtrack;
 import shit.zen.modules.impl.combat.Critical;
 import shit.zen.modules.impl.combat.CrystalAura;
 import shit.zen.modules.impl.combat.KillAura;
+import shit.zen.modules.impl.client.MusicPlayer;
 import shit.zen.modules.impl.exploit.Disabler;
 import shit.zen.modules.impl.exploit.FastPlace;
 import shit.zen.modules.impl.misc.AimAssist;
@@ -153,6 +154,7 @@ public class ModuleManager extends ClientBase {
         this.register(new Debugger());
         this.register(new Teams());
         this.register(new WebUI());
+        this.register(new MusicPlayer());
     }
 
     public void register(Module module) {
