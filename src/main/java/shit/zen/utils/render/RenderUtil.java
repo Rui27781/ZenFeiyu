@@ -730,6 +730,104 @@ extends ClientBase {
         return alpha << 24 | Color.HSBtoRGB(hue, saturation, brightness) & 0xFFFFFF;
     }
 
+    public static void drawOutlinedBox(AABB aABB, PoseStack poseStack, Color color, float lineWidth, float alpha) {
+        Matrix4f matrix4f = poseStack.last().pose();
+        Tesselator tesselator = Tesselator.getInstance();
+        BufferBuilder bufferBuilder = tesselator.getBuilder();
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
+        RenderSystem.setShader(GameRenderer::getPositionColorShader);
+        RenderSystem.lineWidth(lineWidth);
+        float minX = (float) aABB.minX;
+        float minY = (float) aABB.minY;
+        float minZ = (float) aABB.minZ;
+        float maxX = (float) aABB.maxX;
+        float maxY = (float) aABB.maxY;
+        float maxZ = (float) aABB.maxZ;
+        float r = color.getRed() / 255.0f;
+        float g = color.getGreen() / 255.0f;
+        float b = color.getBlue() / 255.0f;
+        bufferBuilder.begin(VertexFormat.Mode.LINES, DefaultVertexFormat.POSITION_COLOR);
+        // Bottom edges
+        bufferBuilder.vertex(matrix4f, minX, minY, minZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, maxX, minY, minZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, maxX, minY, minZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, maxX, minY, maxZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, maxX, minY, maxZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, minX, minY, maxZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, minX, minY, maxZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, minX, minY, minZ).color(r, g, b, alpha).endVertex();
+        // Top edges
+        bufferBuilder.vertex(matrix4f, minX, maxY, minZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, maxX, maxY, minZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, maxX, maxY, minZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, maxX, maxY, maxZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, maxX, maxY, maxZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, minX, maxY, maxZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, minX, maxY, maxZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, minX, maxY, minZ).color(r, g, b, alpha).endVertex();
+        // Vertical edges
+        bufferBuilder.vertex(matrix4f, minX, minY, minZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, minX, maxY, minZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, maxX, minY, minZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, maxX, maxY, minZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, maxX, minY, maxZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, maxX, maxY, maxZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, minX, minY, maxZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, minX, maxY, maxZ).color(r, g, b, alpha).endVertex();
+        BufferUploader.drawWithShader(bufferBuilder.end());
+        RenderSystem.lineWidth(1.0f);
+        RenderSystem.disableBlend();
+    }
+
+    public static void drawFilledBox(AABB aABB, PoseStack poseStack, Color color, float alpha) {
+        Matrix4f matrix4f = poseStack.last().pose();
+        Tesselator tesselator = Tesselator.getInstance();
+        BufferBuilder bufferBuilder = tesselator.getBuilder();
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
+        RenderSystem.setShader(GameRenderer::getPositionColorShader);
+        float minX = (float) aABB.minX;
+        float minY = (float) aABB.minY;
+        float minZ = (float) aABB.minZ;
+        float maxX = (float) aABB.maxX;
+        float maxY = (float) aABB.maxY;
+        float maxZ = (float) aABB.maxZ;
+        float r = color.getRed() / 255.0f;
+        float g = color.getGreen() / 255.0f;
+        float b = color.getBlue() / 255.0f;
+        bufferBuilder.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+        // Bottom
+        bufferBuilder.vertex(matrix4f, minX, minY, minZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, maxX, minY, minZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, maxX, minY, maxZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, minX, minY, maxZ).color(r, g, b, alpha).endVertex();
+        // Top
+        bufferBuilder.vertex(matrix4f, minX, maxY, maxZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, maxX, maxY, maxZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, maxX, maxY, minZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, minX, maxY, minZ).color(r, g, b, alpha).endVertex();
+        // Sides
+        bufferBuilder.vertex(matrix4f, minX, minY, minZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, minX, maxY, minZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, maxX, maxY, minZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, maxX, minY, minZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, maxX, minY, minZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, maxX, maxY, minZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, maxX, maxY, maxZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, maxX, minY, maxZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, maxX, minY, maxZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, maxX, maxY, maxZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, minX, maxY, maxZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, minX, minY, maxZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, minX, minY, minZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, minX, maxY, minZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, minX, maxY, maxZ).color(r, g, b, alpha).endVertex();
+        bufferBuilder.vertex(matrix4f, minX, minY, maxZ).color(r, g, b, alpha).endVertex();
+        BufferUploader.drawWithShader(bufferBuilder.end());
+        RenderSystem.disableBlend();
+    }
+
     @Generated
     private RenderUtil() {
         throw new UnsupportedOperationException("This is a utility class and cannot be instantiated");

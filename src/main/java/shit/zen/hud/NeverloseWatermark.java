@@ -8,6 +8,7 @@ import net.minecraft.client.multiplayer.ServerData;
 import shit.zen.ClientBase;
 import shit.zen.event.impl.GlRenderEvent;
 import shit.zen.event.impl.Render2DEvent;
+import shit.zen.modules.impl.render.Watermark;
 import shit.zen.render.DrawContext;
 import shit.zen.render.FontPresets;
 import shit.zen.render.FontRenderer;
@@ -117,7 +118,9 @@ public class NeverloseWatermark {
     }
 
     private String getServerName() {
-        return ClientBase.mc.player != null ? ClientBase.mc.player.getGameProfile().getName() : "Player";
+        if (ClientBase.mc.player == null) return "Player";
+        String id = Watermark.INSTANCE != null ? Watermark.INSTANCE.getId() : "cn78";
+        return id.isBlank() ? ClientBase.mc.player.getGameProfile().getName() : id.trim();
     }
 
     private String getPingText() {

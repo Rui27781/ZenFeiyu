@@ -105,11 +105,6 @@ public class DynamicIsland {
             poseStack.popPose();
             Renderer.renderConsumer((drawContext -> {
                 RoundedRectangle panel = RoundedRectangle.ofXYWHR(islandX, finalY, islandWidth, islandHeight, finalCornerRadius);
-                // Liquid-glass base: translucent dark tint over the blurred backdrop.
-                try (Paint paint = new Paint()){
-                    paint.setColor(new Color(16, 18, 24, 118).getRGB());
-                    drawContext.drawRoundedRect(panel, paint);
-                }
                 // Soft white sheen fading from the top edge.
                 drawContext.save();
                 drawContext.clipRoundedRect(panel, true);

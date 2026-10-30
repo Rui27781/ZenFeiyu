@@ -24,13 +24,13 @@ import shit.zen.utils.render.RenderUtil;
 
 /**
  * Floating panel that follows the entity the player last attacked (or the
- * current KillAura target). Shows the head, name and health. While a chat
- * screen is open the local player is previewed, which also makes the panel
- * draggable through the regular HUD drag path.
+ * current KillAura target). Shows the head, name, health and distance.
+ * While a chat screen is open the local player is previewed, which also
+ * makes the panel draggable through the regular HUD drag path.
  */
 public class AttackTargetHud
 extends HudElement {
-    private static final float PANEL_WIDTH = 132.0f;
+    private static final float PANEL_WIDTH = 150.0f;
     private static final float PANEL_HEIGHT = 44.0f;
     private static final float HEAD_SIZE = 30.0f;
     private static final long LINGER_MS = 4000L;
@@ -39,9 +39,12 @@ extends HudElement {
 
     private final SmoothAnimationTimer fadeAnim = new SmoothAnimationTimer();
     private final SmoothAnimationTimer healthAnim = new SmoothAnimationTimer();
+    private final SmoothAnimationTimer headShakeAnim = new SmoothAnimationTimer();
+    private final SmoothAnimationTimer headBlurAnim = new SmoothAnimationTimer();
     private LivingEntity target;
     private long lastAttackTime;
     private LivingEntity renderedTarget;
+    private boolean wasAttacking = false;
 
     public AttackTargetHud() {
         super("AttackTargetHUD");
@@ -100,6 +103,27 @@ extends HudElement {
         this.healthAnim.animate(healthRatio, 0.35, Easings.EASE_OUT_POW3);
         this.healthAnim.tick();
 
+        // Check if currently attacking this target
+        boolean isAttacking = KillAura.aimingTarget == target;
+        if (isAttacking && !this.wasAttacking) {
+            // Just started attacking - trigger shake and blur
+            this.headShakeAnim.animate(1.0, 0.15, Easings.EASE_OUT_ELASTIC);
+            this.headBlurAnim.animate(1.0, 0.1, Easings.EASE_OUT_QUAD);
+        } else if (!isAttacking && this.wasAttacking) {
+            // Stopped attacking
+            this.headShakeAnim.animate(0.0, 0.3, Easings.EASE_OUT_QUAD);
+            this.headBlurAnim.animate(0.0, 0.3, Easings.EASE_OUT_QUAD);
+        }
+        this.wasAttacking = isAttacking;
+        this.headShakeAnim.tick();
+        this.headBlurAnim.tick();
+
+        float shakeOffset = this.headShakeAnim.getValueF() * 3.0f * (float) Math.sin(System.currentTimeMillis() * 0.05);
+        float blurAmount = this.headBlurAnim.getValueF() * 8.0f;
+
+        // Calculate distance
+        float distance = mc.player.distanceTo(target);
+
         PoseStack poseStack = render2DEvent.poseStack();
         poseStack.pushPose();
         RenderUtil.drawBlurredRect(poseStack, x, y, PANEL_WIDTH, PANEL_HEIGHT, 7.0f, 15.0f, 0.92f * fade, 0);
@@ -134,9 +158,16 @@ extends HudElement {
                 drawContext.drawRoundedRect(RoundedRectangle.ofXYWHR(x + 0.5f, y + 0.5f,
                         PANEL_WIDTH - 1.0f, PANEL_HEIGHT - 1.0f, 6.5f), rim);
             }
-            float headX = x + 5.0f;
+            float headX = x + 5.0f + shakeOffset;
             float headY = y + (PANEL_HEIGHT - HEAD_SIZE) / 2.0f;
             if (target instanceof AbstractClientPlayer player) {
+                // Apply blur effect when attacking
+                if (blurAmount > 0.5f) {
+                    PoseStack ps = render2DEvent.poseStack();
+                    ps.pushPose();
+                    RenderUtil.drawBlurredRect(ps, headX, headY, HEAD_SIZE, HEAD_SIZE, 6.0f, blurAmount, fade, 0);
+                    ps.popPose();
+                }
                 GlHelper.drawPlayerHeadRounded(player, headX, headY, HEAD_SIZE, HEAD_SIZE, fade, 6.0f);
             } else {
                 try (Paint headBg = new Paint()) {
@@ -144,10 +175,17 @@ extends HudElement {
                     drawContext.drawRoundedRect(RoundedRectangle.ofXYWHR(headX, headY, HEAD_SIZE, HEAD_SIZE, 6.0f), headBg);
                 }
             }
-            float contentX = headX + HEAD_SIZE + 6.0f;
+            float contentX = headX + HEAD_SIZE + 6.0f - shakeOffset;
             float nameY = y + 6.0f;
             GlHelper.drawTextShadowLegacy(name, contentX, nameY, nameFont,
                     new Color(1.0f, 1.0f, 1.0f, fade).getRGB());
+
+            // Distance display
+            String distText = String.format("%.1fm", distance);
+            float distWidth = GlHelper.getStringWidth(distText, valueFont);
+            GlHelper.drawTextShadowLegacy(distText, x + PANEL_WIDTH - 6.0f - distWidth, nameY + 16.0f, valueFont,
+                    new Color(0.7f, 0.7f, 1.0f, fade * 0.85f).getRGB());
+
             String hpText = String.format("%.1f", healthValue);
             float hpWidth = GlHelper.getStringWidth(hpText, valueFont);
             GlHelper.drawTextShadowLegacy(hpText, x + PANEL_WIDTH - 6.0f - hpWidth, nameY + 3.0f, valueFont,

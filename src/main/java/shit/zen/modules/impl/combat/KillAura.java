@@ -1,6 +1,12 @@
 package shit.zen.modules.impl.combat;
 
 import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.BufferBuilder;
+import com.mojang.blaze3d.vertex.BufferUploader;
+import com.mojang.blaze3d.vertex.DefaultVertexFormat;
+import com.mojang.blaze3d.vertex.Tesselator;
+import com.mojang.blaze3d.vertex.VertexFormat;
+import com.mojang.blaze3d.systems.RenderSystem;
 import java.awt.Color;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -10,6 +16,7 @@ import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 import net.minecraft.client.Camera;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
+import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.world.InteractionHand;
 import net.minecraftforge.client.ForgeHooksClient;
 import net.minecraft.world.entity.Entity;
@@ -28,6 +35,7 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
+import org.joml.Matrix4f;
 import shit.zen.ClientBase;
 import shit.zen.ZenClient;
 import shit.zen.event.impl.PreMotionEvent;
@@ -53,6 +61,7 @@ import shit.zen.utils.game.ItemUtil;
 import shit.zen.utils.game.RotationUtil;
 import shit.zen.utils.math.MathUtil;
 import shit.zen.utils.misc.ChatUtil;
+import shit.zen.utils.render.ColorUtil;
 import shit.zen.utils.render.RenderUtil;
 import shit.zen.utils.rotation.Rotation;
 import shit.zen.utils.rotation.RotationHandler;
@@ -88,7 +97,7 @@ public class KillAura extends Module {
     public final NumberSetting hurtTime    = new NumberSetting("Hurt Time", 10.0, 0.0, 10.0, 1.0);
     public final ModeSetting delayMode    = new ModeSetting("Delay Mode", "1.8", "1.9").withDefault("1.8");
     public final ModeSetting priorityMode = new ModeSetting("Priority", "Distance", "FoV", "Health", "None").withDefault("FoV");
-    public final ModeSetting targetEsp    = new ModeSetting("Target ESP", "None", "Spiral", "Box", "Tab").withDefault("None");
+    public final ModeSetting targetEsp    = new ModeSetting("Target ESP", "None", "Spiral", "Box", "Tab", "Halo").withDefault("None");
 
     private RotationUtil.BestHitInfo currentBestHit;
     private RotationUtil.BestHitInfo prevBestHit;
@@ -189,10 +198,110 @@ public class KillAura extends Module {
                         base.maxX, base.maxY - 0.13, base.maxZ);
                 RenderUtil.drawFilledColoredBox(band, poseStack, color, color);
             }
+            case "Halo" -> {
+                this.renderHalo(poseStack, entity, event.partialTick(), offset);
+            }
             default -> {
             }
         }
         poseStack.popPose();
+    }
+
+    private void renderHalo(PoseStack poseStack, Entity entity, float partialTick, Vec3 offset) {
+        if (mc == null || mc.gameRenderer == null || mc.gameRenderer.getMainCamera() == null) {
+            return;
+        }
+        Vec3 vec3 = EntityUtil.getInterpolatedPos(entity, partialTick);
+        double entityX = vec3.x() + offset.x();
+        double entityY = vec3.y() + offset.y();
+        double entityZ = vec3.z() + offset.z();
+        float entityHeight = entity.getBbHeight();
+        double entityWidth = entity.getBbWidth() * 0.6;
+
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
+        RenderSystem.setShaderColor(1.0f, 1.0f, 1.0f, 1.0f);
+        RenderSystem.setShader(GameRenderer::getPositionColorShader);
+        RenderSystem.depthMask(false);
+        RenderSystem.enableDepthTest();
+        RenderSystem.disableCull();
+        RenderSystem.lineWidth(2.0f);
+
+        Matrix4f matrix4f = poseStack.last().pose();
+        Tesselator tesselator = Tesselator.getInstance();
+        BufferBuilder bufferBuilder = tesselator.getBuilder();
+
+        long time = System.currentTimeMillis();
+        double scanSpeed = 2.0; // cycles per second
+        double scanPhase = (time % 2000) / 2000.0; // 0 to 1 over 2 seconds
+
+        // Outer halo ring
+        bufferBuilder.begin(VertexFormat.Mode.LINE_STRIP, DefaultVertexFormat.POSITION_COLOR);
+        int segments = 72;
+        for (int i = 0; i <= segments; ++i) {
+            double angle = (double) i / segments * Math.PI * 2.0;
+            double offsetX = Math.cos(angle) * entityWidth;
+            double offsetZ = Math.sin(angle) * entityWidth;
+            double y = entityY + entityHeight * 0.1;
+            // Pulsing alpha
+            float alpha = (float) (0.3 + 0.4 * Math.sin(time * 0.005 + angle));
+            Color color = ColorUtil.getRainbowColor(5, (int) (angle * 180 / Math.PI + time * 0.1));
+            bufferBuilder.vertex(matrix4f, (float) (entityX + offsetX), (float) y, (float) (entityZ + offsetZ))
+                    .color(color.getRed() / 255.0f, color.getGreen() / 255.0f, color.getBlue() / 255.0f, alpha).endVertex();
+        }
+        BufferUploader.drawWithShader(bufferBuilder.end());
+
+        // Vertical scan lines (scanning effect)
+        bufferBuilder.begin(VertexFormat.Mode.LINES, DefaultVertexFormat.POSITION_COLOR);
+        int scanLines = 8;
+        for (int i = 0; i < scanLines; ++i) {
+            double angle = (double) i / scanLines * Math.PI * 2.0;
+            double offsetX = Math.cos(angle) * entityWidth;
+            double offsetZ = Math.sin(angle) * entityWidth;
+            // Scan line moving up and down
+            double scanY = entityY + entityHeight * (0.1 + 0.8 * scanPhase);
+            float alpha = (float) (0.5 * Math.sin(time * 0.01 + i) * 0.5 + 0.5);
+            Color color = ColorUtil.getRainbowColor(5, (int) (angle * 180 / Math.PI + time * 0.1));
+            bufferBuilder.vertex(matrix4f, (float) (entityX + offsetX), (float) (entityY + entityHeight * 0.1), (float) (entityZ + offsetZ))
+                    .color(color.getRed() / 255.0f, color.getGreen() / 255.0f, color.getBlue() / 255.0f, alpha).endVertex();
+            bufferBuilder.vertex(matrix4f, (float) (entityX + offsetX), (float) (scanY), (float) (entityZ + offsetZ))
+                    .color(color.getRed() / 255.0f, color.getGreen() / 255.0f, color.getBlue() / 255.0f, alpha).endVertex();
+        }
+        BufferUploader.drawWithShader(bufferBuilder.end());
+
+        // Horizontal scanning ring
+        double ringY = entityY + entityHeight * (0.1 + 0.8 * scanPhase);
+        bufferBuilder.begin(VertexFormat.Mode.LINE_STRIP, DefaultVertexFormat.POSITION_COLOR);
+        for (int i = 0; i <= segments; ++i) {
+            double angle = (double) i / segments * Math.PI * 2.0;
+            double offsetX = Math.cos(angle) * entityWidth;
+            double offsetZ = Math.sin(angle) * entityWidth;
+            float alpha = (float) (0.6 * Math.sin(time * 0.01 + angle * 2) * 0.5 + 0.5);
+            Color color = ColorUtil.getRainbowColor(5, (int) (angle * 180 / Math.PI + time * 0.15));
+            bufferBuilder.vertex(matrix4f, (float) (entityX + offsetX), (float) ringY, (float) (entityZ + offsetZ))
+                    .color(color.getRed() / 255.0f, color.getGreen() / 255.0f, color.getBlue() / 255.0f, alpha).endVertex();
+        }
+        BufferUploader.drawWithShader(bufferBuilder.end());
+
+        // Inner pulsing ring
+        bufferBuilder.begin(VertexFormat.Mode.LINE_STRIP, DefaultVertexFormat.POSITION_COLOR);
+        double innerWidth = entityWidth * 0.5;
+        for (int i = 0; i <= segments; ++i) {
+            double angle = (double) i / segments * Math.PI * 2.0;
+            double offsetX = Math.cos(angle) * innerWidth;
+            double offsetZ = Math.sin(angle) * innerWidth;
+            double y = entityY + entityHeight * 0.5;
+            float pulse = (float) (0.5 + 0.5 * Math.sin(time * 0.008));
+            Color color = new Color(180, 120, 255, (int) (200 * pulse));
+            bufferBuilder.vertex(matrix4f, (float) (entityX + offsetX), (float) y, (float) (entityZ + offsetZ))
+                    .color(color.getRed() / 255.0f, color.getGreen() / 255.0f, color.getBlue() / 255.0f, pulse).endVertex();
+        }
+        BufferUploader.drawWithShader(bufferBuilder.end());
+
+        RenderSystem.lineWidth(1.0f);
+        RenderSystem.depthMask(true);
+        RenderSystem.disableBlend();
+        RenderSystem.setShaderColor(1.0f, 1.0f, 1.0f, 1.0f);
     }
 
     @EventTarget

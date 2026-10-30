@@ -65,6 +65,7 @@ import shit.zen.modules.impl.render.NameTags;
 import shit.zen.modules.impl.render.NoHurtCam;
 import shit.zen.modules.impl.render.OldHitting;
 import shit.zen.modules.impl.render.Projectiles;
+import shit.zen.modules.impl.render.BlockHighlight;
 import shit.zen.modules.impl.render.Watermark;
 import shit.zen.modules.impl.render.XRay;
 import shit.zen.modules.impl.world.AntiStaff;
@@ -142,6 +143,7 @@ public class ModuleManager extends ClientBase {
         this.register(new NoHurtCam());
         this.register(new OldHitting());
         this.register(new Projectiles());
+        this.register(new BlockHighlight());
         this.register(new Watermark());
         this.register(new XRay());
 
