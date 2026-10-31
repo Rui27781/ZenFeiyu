@@ -126,6 +126,19 @@ public class ModuleButton {
         RenderUtil.drawBlurredRect(poseStack, this.panel.x, rowY, this.panel.width, rowHeight, 4.0f, 6.0f, 0.9f, 0);
         RenderUtil.drawFilledRect(poseStack, this.panel.x, rowY, this.panel.width, rowHeight, new Color(21, 21, 21, bgAlpha).getRGB());
         String name = this.module.getName();
+        // Narrow panels (8 categories on small GUI scales) would otherwise let
+        // long module names spill into the neighbouring panel.
+        float maxNameWidth = Math.max(12.0f, (float)this.panel.width - 8.0f);
+        if (FontStore.OPENSANS_16.getStringWidth(name) > maxNameWidth) {
+            StringBuilder builder = new StringBuilder();
+            for (char c : name.toCharArray()) {
+                if (FontStore.OPENSANS_16.getStringWidth(builder.toString() + c + "..") > maxNameWidth) {
+                    break;
+                }
+                builder.append(c);
+            }
+            name = builder + "..";
+        }
         float nameWidth = FontStore.OPENSANS_16.getStringWidth(name);
         float nameX = (float)this.panel.x + (float)this.panel.width / 2.0f - nameWidth / 2.0f;
         float nameY = (float)(this.panel.y + this.yOffset) + (float)this.panel.rowHeight / 2.0f - FontStore.OPENSANS_16.getFontHeight() / 2.0f;

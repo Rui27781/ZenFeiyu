@@ -37,7 +37,7 @@ extends Screen {
         int available = Math.max(120, this.width - 16);
         if (count * panelWidth + Math.max(0, count - 1) * gap > available) {
             gap = 4;
-            panelWidth = Math.max(84, (available - Math.max(0, count - 1) * gap) / count);
+            panelWidth = Math.max(72, (available - Math.max(0, count - 1) * gap) / count);
         }
         int totalWidth = count * panelWidth + Math.max(0, count - 1) * gap;
         int x = Math.max(4, (this.width - totalWidth) / 2);
