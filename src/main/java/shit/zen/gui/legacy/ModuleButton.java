@@ -12,6 +12,7 @@ import shit.zen.gui.legacy.ModeComponent;
 import shit.zen.gui.legacy.MultiSelectComponent;
 import shit.zen.gui.legacy.NumberComponent;
 import shit.zen.gui.legacy.SettingComponent;
+import shit.zen.gui.legacy.StringComponent;
 import shit.zen.modules.Module;
 import shit.zen.render.FontStore;
 import shit.zen.settings.Setting;
@@ -19,6 +20,7 @@ import shit.zen.settings.impl.BooleanSetting;
 import shit.zen.settings.impl.ModeSetting;
 import shit.zen.settings.impl.MultiSelectSetting;
 import shit.zen.settings.impl.NumberSetting;
+import shit.zen.settings.impl.StringSetting;
 import shit.zen.utils.animation.SmoothAnimationTimer;
 import shit.zen.utils.math.Easings;
 import shit.zen.utils.render.ColorUtil;
@@ -52,6 +54,10 @@ public class ModuleButton {
             }
             if (setting instanceof NumberSetting) {
                 this.settingComponents.add(new NumberComponent(setting, this, 0));
+                continue;
+            }
+            if (setting instanceof StringSetting) {
+                this.settingComponents.add(new StringComponent(setting, this, 0));
                 continue;
             }
             if (!(setting instanceof MultiSelectSetting)) continue;

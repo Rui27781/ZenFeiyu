@@ -8,6 +8,8 @@ import net.minecraft.network.chat.Component;
 import shit.zen.ZenClient;
 import shit.zen.gui.legacy.CategoryPanel;
 import shit.zen.gui.legacy.ModuleButton;
+import shit.zen.gui.legacy.SettingComponent;
+import shit.zen.gui.legacy.StringComponent;
 import shit.zen.modules.Category;
 
 public class OldClickGui
@@ -26,14 +28,23 @@ extends Screen {
 
     public void init() {
         super.init();
-        // Keep the row on screen after the Client category was added. The
-        // original 20px left margin is used when there is enough room.
-        int totalWidth = this.categoryPanels.size() * 140 + Math.max(0, this.categoryPanels.size() - 1) * 20;
-        int startX = Math.min(20, Math.max(8, this.width - totalWidth - 8));
-        int x = startX;
+        // Eight categories no longer fit at 140px on common GUI scales. Use the
+        // original 140px/20px layout when there is room, otherwise shrink the
+        // panels (never below 84px) so the Client category stays reachable.
+        int count = this.categoryPanels.size();
+        int gap = 20;
+        int panelWidth = 140;
+        int available = Math.max(120, this.width - 16);
+        if (count * panelWidth + Math.max(0, count - 1) * gap > available) {
+            gap = 4;
+            panelWidth = Math.max(84, (available - Math.max(0, count - 1) * gap) / count);
+        }
+        int totalWidth = count * panelWidth + Math.max(0, count - 1) * gap;
+        int x = Math.max(4, (this.width - totalWidth) / 2);
         for (CategoryPanel categoryPanel : this.categoryPanels) {
+            categoryPanel.width = panelWidth;
             categoryPanel.x = x;
-            x += 160;
+            x += panelWidth + gap;
             for (ModuleButton moduleButton : categoryPanel.moduleButtons) {
                 moduleButton.reset();
             }
@@ -56,10 +67,45 @@ extends Screen {
     }
 
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        StringComponent active = this.activeStringComponent();
+        if (active != null && !active.isHovered(mouseX, mouseY)) {
+            active.commit();
+        }
         for (CategoryPanel categoryPanel : this.categoryPanels) {
             categoryPanel.mouseClicked(mouseX, mouseY, button);
         }
         return true;
+    }
+
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        StringComponent active = this.activeStringComponent();
+        if (active != null && active.keyPressed(keyCode)) {
+            return true;
+        }
+        return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+
+    @Override
+    public boolean charTyped(char codePoint, int modifiers) {
+        StringComponent active = this.activeStringComponent();
+        if (active != null && active.charTyped(codePoint)) {
+            return true;
+        }
+        return super.charTyped(codePoint, modifiers);
+    }
+
+    private StringComponent activeStringComponent() {
+        for (CategoryPanel categoryPanel : this.categoryPanels) {
+            for (ModuleButton moduleButton : categoryPanel.moduleButtons) {
+                for (SettingComponent settingComponent : moduleButton.settingComponents) {
+                    if (settingComponent instanceof StringComponent stringComponent && stringComponent.isEditing()) {
+                        return stringComponent;
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollDelta) {
