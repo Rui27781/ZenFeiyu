@@ -77,7 +77,7 @@ extends SettingElement<ModeSetting> {
         hoverAmount = this.hoverTimer.getValueF();
         RenderUtil.drawRoundedRect(poseStack, this.x + 6.0f, dropdownY, dropdownWidth, itemHeight, 3.0f, ColorUtil.withAlpha(ColorUtil.fromRGB((int)(60.0f + 30.0f * hoverAmount), (int)(60.0f + 30.0f * hoverAmount), (int)(60.0f + 30.0f * hoverAmount)), alpha));
         FontStore.AXIFORMA_BOLD_13.drawStringCentered(poseStack, this.setting.getValue(), this.x + 60.0f, dropdownY + (itemHeight - FontStore.AXIFORMA_BOLD_13.getFontHeight()) / 2.0f, ColorUtil.withAlpha(-1, alpha * 0.8f));
-        String arrowIcon = String.valueOf('\ueb5d');
+        String arrowIcon = String.valueOf('\ue5cf');
         FontStore.MATERIAL_20.drawStringCentered(poseStack, arrowIcon, this.x + 6.0f + dropdownWidth - FontStore.MATERIAL_20.getStringWidth(arrowIcon) + 2.0f, dropdownY + (itemHeight - FontStore.MATERIAL_20.getFontHeight()) / 2.0f + 0.5f, ColorUtil.withAlpha(-1, alpha * 0.8f));
     }
 

@@ -79,7 +79,7 @@ extends SettingElement<MultiSelectSetting> {
                 if (dropdownY + dropdownHeight > itemY + FontStore.AXIFORMA_BOLD_13.getFontHeight()) {
                     FontStore.AXIFORMA_BOLD_13.drawStringCentered(poseStack, option, this.x + 60.0f, itemY, ColorUtil.withAlpha(-1, alpha * 0.8f * openAmount));
                     if (this.setting.getValue().contains(option)) {
-                        FontStore.MATERIAL_14.drawString(poseStack, "", this.x + 6.0f + dropdownWidth - FontStore.MATERIAL_14.getStringWidth("") - 4.0f, itemY - hoverAmount + (itemHeight - FontStore.MATERIAL_14.getFontHeight()) / 2.0f + 0.5f, ColorUtil.withAlpha(Theme.accent(), alpha * 0.8f * openAmount));
+                        FontStore.MATERIAL_14.drawString(poseStack, "", this.x + 6.0f + dropdownWidth - FontStore.MATERIAL_14.getStringWidth("") - 4.0f, itemY - hoverAmount + (itemHeight - FontStore.MATERIAL_14.getFontHeight()) / 2.0f + 0.5f, ColorUtil.withAlpha(Theme.accent(), alpha * 0.8f * openAmount));
                     }
                 }
                 itemY += itemHeight;
@@ -100,7 +100,7 @@ extends SettingElement<MultiSelectSetting> {
             this.hasMultipleSelected = true;
         }
         FontStore.AXIFORMA_BOLD_13.drawStringCentered(poseStack, selectedLabel, this.x + 60.0f, dropdownY + (itemHeight - FontStore.AXIFORMA_BOLD_13.getFontHeight()) / 2.0f, ColorUtil.withAlpha(-1, alpha * 0.8f));
-        Object arrowIcon = String.valueOf('');
+        Object arrowIcon = String.valueOf('');
         FontStore.MATERIAL_20.drawString(poseStack, (String)arrowIcon, this.x + 6.0f + dropdownWidth - FontStore.MATERIAL_20.getStringWidth((String)arrowIcon) - 2.0f, dropdownY + (itemHeight - FontStore.MATERIAL_20.getFontHeight()) / 2.0f + 0.5f, ColorUtil.withAlpha(-1, alpha * 0.8f));
         if (this.isDropdownHovered && this.hasMultipleSelected) {
             this.parentPanel.setHoveredSettingElement(this);

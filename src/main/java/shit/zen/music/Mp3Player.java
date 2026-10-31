@@ -10,7 +10,9 @@ import javax.sound.sampled.SourceDataLine;
 import javazoom.jl.decoder.Bitstream;
 import javazoom.jl.decoder.Decoder;
 import javazoom.jl.decoder.Header;
+import javazoom.jl.decoder.JavaLayerUtils;
 import javazoom.jl.decoder.SampleBuffer;
+import shit.zen.utils.misc.Assets;
 
 /**
  * Minimal MP3 player built on JLayer. JLayer decodes frames to 16-bit PCM and
@@ -25,6 +27,21 @@ public final class Mp3Player {
     }
 
     private static final int WRITE_CHUNK = 4096;
+
+    /*
+     * JLayer loads sfd.ser / l3reorder.ser from its own classpath. In the DLL
+     * injection path our jar is not on the game ClassLoader's URL path, so
+     * those lookups return null and SynthesisFilter fails with
+     * ExceptionInInitializerError. JavaLayerUtils exposes a hook for exactly
+     * this case; Assets.open falls back to the extracted openzen.resources
+     * directory where the .ser files already live.
+     */
+    static {
+        try {
+            JavaLayerUtils.setHook(name -> Assets.open("/javazoom/jl/decoder/" + name));
+        } catch (Throwable ignored) {
+        }
+    }
 
     private final Object pauseLock = new Object();
     private volatile SourceDataLine line;
@@ -235,10 +252,21 @@ public final class Mp3Player {
                 }
             }
         } catch (Throwable throwable) {
+            throwable.printStackTrace();
             if (gen == this.generation) {
                 this.running = false;
                 this.paused = false;
-                this.error = throwable.getMessage() == null ? throwable.getClass().getSimpleName() : throwable.getMessage();
+                StringBuilder message = new StringBuilder(throwable.getClass().getSimpleName());
+                Throwable cause = throwable.getCause();
+                if (cause != null) {
+                    message.append(": ").append(cause.getClass().getSimpleName());
+                    if (cause.getMessage() != null) {
+                        message.append(" (").append(cause.getMessage()).append(')');
+                    }
+                } else if (throwable.getMessage() != null) {
+                    message.append(": ").append(throwable.getMessage());
+                }
+                this.error = message.toString();
                 Listener callback = this.listener;
                 if (callback != null) {
                     callback.onError(this.error);
