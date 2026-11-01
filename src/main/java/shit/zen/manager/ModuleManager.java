@@ -20,6 +20,7 @@ import shit.zen.modules.impl.combat.AutoThrow;
 import shit.zen.modules.impl.combat.Backtrack;
 import shit.zen.modules.impl.combat.Critical;
 import shit.zen.modules.impl.combat.CrystalAura;
+import shit.zen.modules.impl.combat.FakeLag;
 import shit.zen.modules.impl.combat.KillAura;
 import shit.zen.modules.impl.client.FreeLook;
 import shit.zen.modules.impl.client.MusicPlayer;
@@ -95,6 +96,7 @@ public class ModuleManager extends ClientBase {
         this.register(new Backtrack());
         this.register(new Critical());
         this.register(new CrystalAura());
+        this.register(new FakeLag());
         this.register(new KillAura());
 
         this.register(new Disabler());
