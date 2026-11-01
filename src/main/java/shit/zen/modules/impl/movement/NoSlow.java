@@ -318,6 +318,18 @@ public class NoSlow extends Module {
         return mainHand.getItem() != offHand.getItem();
     }
 
+    /** 是否正在处理使用物品/切手等 NoSlow 流程。 */
+    public static boolean isHandling() {
+        NoSlow instance = INSTANCE;
+        if (instance == null || !instance.isEnabled()) {
+            return false;
+        }
+        return instance.isBlinking
+                || instance.shouldReleaseItem
+                || instance.releaseTicksRemaining > 0
+                || (mc.player != null && mc.player.isUsingItem());
+    }
+
     public static boolean isBlocking(Minecraft minecraft) {
         return INSTANCE != null && INSTANCE.isBlockingInternal(minecraft);
     }

@@ -1,7 +1,10 @@
 package shit.zen.modules.impl.combat.antikb;
 
-import java.util.concurrent.LinkedBlockingDeque;
-import net.minecraft.network.PacketListener;
+import java.util.concurrent.ConcurrentLinkedQueue;
+
+import com.mojang.blaze3d.platform.InputConstants;
+
+import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientGamePacketListener;
 import net.minecraft.network.protocol.game.ClientboundAnimatePacket;
@@ -11,25 +14,24 @@ import net.minecraft.network.protocol.game.ClientboundHurtAnimationPacket;
 import net.minecraft.network.protocol.game.ClientboundPlayerChatPacket;
 import net.minecraft.network.protocol.game.ClientboundPlayerCombatKillPacket;
 import net.minecraft.network.protocol.game.ClientboundPlayerPositionPacket;
+import net.minecraft.network.protocol.game.ClientboundPingPacket;
 import net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket;
 import net.minecraft.network.protocol.game.ClientboundSetHealthPacket;
 import net.minecraft.network.protocol.game.ClientboundSetPlayerTeamPacket;
 import net.minecraft.network.protocol.game.ClientboundSetTitleTextPacket;
 import net.minecraft.network.protocol.game.ClientboundSoundPacket;
 import net.minecraft.network.protocol.game.ClientboundSystemChatPacket;
-import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
+import net.minecraft.network.protocol.game.ServerboundInteractPacket;
 import net.minecraft.world.InteractionHand;
-import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.EntityHitResult;
-import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import shit.zen.ZenClient;
 import shit.zen.event.impl.DisconnectEvent;
+import shit.zen.event.impl.EntityHurtEvent;
+import shit.zen.event.impl.EntityRemoveEvent;
 import shit.zen.event.impl.GameTickEvent;
 import shit.zen.event.impl.MotionEvent;
 import shit.zen.event.impl.PreMotionEvent;
@@ -40,35 +42,62 @@ import shit.zen.event.impl.StrafeEvent;
 import shit.zen.event.impl.TickEvent;
 import shit.zen.modules.impl.combat.AntiKB;
 import shit.zen.modules.impl.combat.KillAura;
-import shit.zen.modules.impl.combat.antikb.AntiKBMode;
+import shit.zen.modules.impl.movement.NoSlow;
+import shit.zen.modules.impl.movement.Scaffold;
 import shit.zen.modules.impl.player.Stuck;
+import shit.zen.utils.game.RotationUtil;
 import shit.zen.utils.misc.ChatUtil;
 
 public class NoXZMode
 extends AntiKBMode {
     public static NoXZMode INSTANCE;
+    public static boolean handlingVelocity;
+    /** KillAura 用：NoXZ 正在接管攻击时降低自身 APS，避免重复攻击。 */
     public static boolean isAttacking;
-    public static int attackCount;
-    private int attackCooldown = 0;
-    private Entity attackTarget = null;
-    private int attacksRemaining = 0;
-    private int flagCooldown = 0;
-    private boolean shouldJump = false;
-    private int sprintBoostCounter = 0;
-    private int hitCounter = 0;
-    private boolean isSuspending = false;
-    private int suspendTicks = 0;
-    private ClientboundSetEntityMotionPacket knockbackPacket = null;
-    private final LinkedBlockingDeque<Packet<?>> packetQueue = new LinkedBlockingDeque();
-    private final LinkedBlockingDeque<Packet<?>> movePacketQueue = new LinkedBlockingDeque();
-    private volatile boolean isFlushing = false;
-    private float instantAttackProgress = 0.0f;
-    private boolean isInstantAttacking = false;
-    private boolean shouldFlushMotion;
+
+    private final ConcurrentLinkedQueue<Packet<ClientGamePacketListener>> packetQueue = new ConcurrentLinkedQueue<>();
+
+    public static boolean compensating;
+    public static boolean inDelayWindow;
+    public static int counterRemaining;
+
+    private boolean positionCorrection;
+    private int delayTicks;
+    private int noAimTicks;
+    private int noSprintTicks;
+    private int jumpTicks;
+    private boolean jumpKeyForced;
+    private long compensateUntilMs = -1L;
+    private Entity target;
+
+    private static final int WINDUP_TICKS = 2;
 
     @Override
     public boolean isActive() {
-        return this.isSuspending;
+        return inDelayWindow || counterRemaining > 0;
+    }
+
+    public static boolean isCountering() {
+        return counterRemaining > 0;
+    }
+
+    public static boolean isInAttackWindow() {
+        return isCountering();
+    }
+
+    public static boolean isInDelayWindow() {
+        return inDelayWindow;
+    }
+
+    public static Entity getLockedTarget() {
+        NoXZMode mode = INSTANCE;
+        if (mode == null || AntiKB.INSTANCE == null || !AntiKB.INSTANCE.isEnabled()) {
+            return null;
+        }
+        if (!inDelayWindow && counterRemaining <= 0) {
+            return null;
+        }
+        return mode.target != null && mode.target.isAlive() ? mode.target : null;
     }
 
     public NoXZMode() {
@@ -97,93 +126,6 @@ extends AntiKBMode {
 
     @Override
     public void onMotion(MotionEvent motionEvent) {
-        if (motionEvent.isPre() && this.shouldFlushMotion) {
-            while (!this.packetQueue.isEmpty()) {
-                Packet packet = this.packetQueue.poll();
-                if (packet == null) continue;
-                try {
-                    packet.handle(mc.getConnection());
-                } catch (Exception exception) {
-                    exception.printStackTrace();
-                }
-            }
-            this.shouldFlushMotion = false;
-        }
-    }
-
-    @Override
-    public void onReceivePacket(ReceivePacketEvent receivePacketEvent) {
-        if (mc.player == null) {
-            return;
-        }
-        if (this.isFlushing) {
-            return;
-        }
-        if (this.shouldIgnore()) {
-            return;
-        }
-        Packet<?> packet = receivePacketEvent.getPacket();
-        if (packet instanceof ServerboundMovePlayerPacket && this.isSuspending) {
-            this.movePacketQueue.add(packet);
-            receivePacketEvent.setCancelled(true);
-            return;
-        }
-        if (packet instanceof ClientboundPlayerPositionPacket) {
-            if (this.isSuspending) {
-                this.release();
-            }
-            this.resetSuspension();
-            ChatUtil.print("Flag Detected");
-            this.flagCooldown = 2;
-        }
-        if (this.flagCooldown != 0) {
-            return;
-        }
-        if (this.isSuspending) {
-            if (!this.isAllowedPacket(packet)) {
-                this.packetQueue.add(packet);
-                receivePacketEvent.setCancelled(true);
-            }
-            return;
-        }
-        if (packet instanceof ClientboundSetEntityMotionPacket motionPacket) {
-            if (motionPacket.getId() != mc.player.getId()) {
-                return;
-            }
-            double dx = -motionPacket.getXa();
-            double dz = -motionPacket.getZa();
-            if (Math.abs(dx) > 0.01 || Math.abs(dz) > 0.01) {
-                this.hitCounter = 1;
-            }
-            if (motionPacket.getYa() > 0) {
-                Entity target;
-                this.sprintBoostCounter = this.sprintBoostCounter % 100 + 100;
-                if (this.sprintBoostCounter >= 100) {
-                    this.shouldJump = true;
-                }
-                boolean canAttack = this.isValidTarget(target = this.getAttackTarget()) && mc.player.isSprinting();
-                if (!mc.player.onGround()) {
-                    this.isSuspending = true;
-                    this.suspendTicks = 0;
-                    this.knockbackPacket = motionPacket;
-                    receivePacketEvent.setCancelled(true);
-                } else if (canAttack) {
-                    this.attackTarget = target;
-                    this.attacksRemaining = AntiKB.INSTANCE.attackAmount.getValue().intValue();
-                } else {
-                    this.isSuspending = true;
-                    this.suspendTicks = 0;
-                    this.knockbackPacket = motionPacket;
-                    receivePacketEvent.setCancelled(true);
-                    ChatUtil.print("Alink Wait");
-                }
-            }
-        }
-    }
-
-    @Override
-    public void onDisconnect(DisconnectEvent disconnectEvent) {
-        this.resetAll();
     }
 
     @Override
@@ -191,196 +133,164 @@ extends AntiKBMode {
     }
 
     @Override
-    public void onGameTick(GameTickEvent gameTickEvent) {
-    }
-
-    @Override
     public void onSprint(SprintEvent sprintEvent) {
     }
 
-    private void resetAll() {
-        this.clearTarget();
-        this.flagCooldown = 0;
-        this.shouldJump = false;
-        this.sprintBoostCounter = 0;
-        this.hitCounter = 0;
-        this.resetSuspension();
+    @Override
+    public void onAttack(EntityRemoveEvent entityRemoveEvent) {
     }
 
-    private void clearTarget() {
-        this.attackTarget = null;
-        this.attacksRemaining = 0;
+    @Override
+    public void onEntityHurt(EntityHurtEvent event) {
+        if (mc.player == null || event.entity() != mc.player) {
+            return;
+        }
+        Entity attacker = event.damageSource().getDirectEntity();
+        if (attacker == null) {
+            attacker = event.damageSource().getEntity();
+        }
+        if (attacker != null && attacker != mc.player && attacker.isAlive() && this.target == null) {
+            this.target = attacker;
+        }
     }
 
-    private void resetSuspension() {
-        this.isSuspending = false;
-        this.suspendTicks = 0;
-        this.knockbackPacket = null;
-        this.packetQueue.clear();
-        this.movePacketQueue.clear();
-        this.isFlushing = false;
-        this.instantAttackProgress = 0.0f;
-        this.isInstantAttacking = false;
-        ZenClient.serverTickRate = 1.0f;
-    }
-
-    private boolean shouldIgnore() {
-        if (mc.player == null || mc.level == null) {
-            return true;
-        }
-        if (mc.player.isDeadOrDying() || !mc.player.isAlive() || mc.player.getHealth() <= 0.0f) {
-            return true;
-        }
-        if (mc.player.isSpectator() || mc.player.getAbilities().flying) {
-            return true;
-        }
-        if (mc.player.isInLava() || mc.player.isOnFire() || mc.player.isInWater() || mc.player.onClimbable() || mc.player.isSleeping()) {
-            return true;
-        }
-        if (mc.level.getBlockState(mc.player.blockPosition()).is(Blocks.COBWEB)) {
-            return true;
-        }
-        Stuck stuck = Stuck.INSTANCE;
-        return stuck != null && stuck.isEnabled();
-    }
-
-    private double getAABBDistance(Entity entity) {
+    @Override
+    public void onGameTick(GameTickEvent gameTickEvent) {
         if (mc.player == null) {
-            return Double.MAX_VALUE;
+            return;
         }
-        Vec3 eyePos = mc.player.getEyePosition(1.0f);
-        AABB box = entity.getBoundingBox();
-        double clampedX = Math.max(box.minX, Math.min(eyePos.x, box.maxX));
-        double clampedY = Math.max(box.minY, Math.min(eyePos.y, box.maxY));
-        double clampedZ = Math.max(box.minZ, Math.min(eyePos.z, box.maxZ));
-        return eyePos.distanceTo(new Vec3(clampedX, clampedY, clampedZ));
+        if (!AntiKB.INSTANCE.jumpReset.getValue() || this.jumpTicks <= 0) {
+            this.restoreJumpKey();
+            return;
+        }
+        if (Scaffold.INSTANCE != null && Scaffold.INSTANCE.isEnabled()) {
+            return;
+        }
+        if (mc.player.isOnFire()) {
+            this.jumpTicks = 0;
+            this.restoreJumpKey();
+            return;
+        }
+        // Same rule as JumpResetMode: only press the key on a tick where vanilla would accept it,
+        // otherwise the pending jump is spent while airborne and nothing happens.
+        if (!canJumpNow(mc.player)) {
+            this.jumpTicks = 0;
+            this.restoreJumpKey();
+            return;
+        }
+        this.jumpKeyForced = true;
+        mc.options.keyJump.setDown(true);
+        --this.jumpTicks;
     }
 
-    private Entity getHitResultEntity() {
-        Entity hitEntity;
-        if (mc.hitResult != null && mc.hitResult.getType() == HitResult.Type.ENTITY && (hitEntity = ((EntityHitResult)mc.hitResult).getEntity()) instanceof LivingEntity && hitEntity != mc.player && hitEntity.isAlive() && !hitEntity.isSpectator()) {
-            return hitEntity;
+    @Override
+    public void onReceivePacket(ReceivePacketEvent receivePacketEvent) {
+        if (mc.player == null || mc.level == null) {
+            return;
         }
-        return null;
-    }
+        Packet<ClientGamePacketListener> packet = receivePacketEvent.getPacket();
 
-    private Entity getAttackTarget() {
-        if (KillAura.target != null) {
-            return KillAura.target;
+        if (packet instanceof ClientboundPlayerPositionPacket) {
+            this.positionCorrection = true;
+            return;
         }
-        return this.getHitResultEntity();
-    }
 
-    private boolean isValidTarget(Entity entity) {
-        LivingEntity livingEntity;
-        if (entity == null || !entity.isAlive()) {
-            return false;
+        if (this.shouldNotEngage()) {
+            return;
         }
-        if (entity instanceof LivingEntity && ((livingEntity = (LivingEntity)entity).isDeadOrDying() || livingEntity.getHealth() <= 0.0f)) {
-            return false;
+
+        if (packet instanceof ClientboundSetEntityMotionPacket motion
+                && motion.getId() == mc.player.getId()) {
+            if (!inDelayWindow) {
+                inDelayWindow = true;
+                this.delayTicks = 0;
+                handlingVelocity = true;
+            }
+            receivePacketEvent.setCancelled(true);
+            this.packetQueue.add(packet);
         }
-        double maxReach = 3.7f;
-        return !(this.getAABBDistance(entity) > maxReach);
+
+        if (this.isAllowedPacket(packet)) {
+            return;
+        }
+        if (!inDelayWindow) {
+            return;
+        }
+
+        if (AntiKB.INSTANCE.reduceMode.is("Velocity + Ping")) {
+            if (packet instanceof ClientboundPingPacket) {
+                receivePacketEvent.setCancelled(true);
+                this.packetQueue.add(packet);
+            }
+            return;
+        }
+
+        receivePacketEvent.setCancelled(true);
+        this.packetQueue.add(packet);
     }
 
     @Override
     public void onTick(TickEvent tickEvent) {
-        if (mc.player == null) {
+        if (mc.player == null || mc.level == null) {
             return;
         }
-        if (this.attackCooldown > 0) {
-            --this.attackCooldown;
-            if (this.attackCooldown <= 0) {
-                isAttacking = false;
-                attackCount = 0;
-            }
+
+        this.target = AntiKB.INSTANCE.requireKillAura.getValue()
+                ? KillAura.target
+                : this.crosshairTarget();
+
+        if (this.compensateUntilMs != -1L
+                && (System.currentTimeMillis() >= this.compensateUntilMs || mc.options.keyUp.isDown())) {
+            compensating = false;
+            this.compensateUntilMs = -1L;
         }
-        if (this.hitCounter > 0) {
-            ++this.hitCounter;
-            if (this.hitCounter > 2) {
-                this.hitCounter = 0;
-            }
-        }
-        if (mc.player.isDeadOrDying() || !mc.player.isAlive() || this.shouldIgnore()) {
-            this.clearTarget();
-            if (this.isSuspending) {
-                this.release();
-            }
-            if (this.isInstantAttacking) {
-                this.isInstantAttacking = false;
-                this.instantAttackProgress = 0.0f;
-                ZenClient.serverTickRate = 1.0f;
-            }
+
+        if (this.shouldNotEngage() || this.noAimTicks >= 3) {
+            this.resetAll();
             return;
         }
-        if (this.flagCooldown > 0) {
-            --this.flagCooldown;
-            this.clearTarget();
-        }
-        if (this.isSuspending) {
-            ++this.suspendTicks;
-            boolean instantAttackEnabled = AntiKB.INSTANCE.instantAttack.getValue();
-            if (instantAttackEnabled && this.instantAttackProgress < 3.0f) {
-                float tickRate;
-                ZenClient.serverTickRate = tickRate = 0.5f;
-                this.instantAttackProgress += 1.0f - tickRate;
-                this.instantAttackProgress = Math.min(this.instantAttackProgress, 3.0f);
+
+        if (inDelayWindow) {
+            compensating = true;
+            counterRemaining = 0;
+            if (this.delayTicks >= AntiKB.INSTANCE.maxDelayTicks.getValue().intValue()) {
+                this.resetAll();
+                return;
             }
-            boolean onGround = mc.player.onGround();
-            boolean isTimeout = this.suspendTicks >= 12;
-            if (onGround || isTimeout) {
-                ChatUtil.print(isTimeout ? "Alink Timeout" : "ground");
-                if (instantAttackEnabled) {
-                    ZenClient.serverTickRate = 1.0f;
+            ++this.delayTicks;
+            if (this.isAimingAtTarget() && mc.player.isSprinting() && mc.player.onGround()) {
+                counterRemaining = AntiKB.INSTANCE.attackAmount.getValue().intValue();
+                this.noAimTicks = 0;
+                inDelayWindow = false;
+                handlingVelocity = false;
+                this.flushQueue();
+                if (AntiKB.INSTANCE.jumpReset.getValue()) {
+                    this.jumpTicks = 1;
                 }
-                Entity target = this.getAttackTarget();
-                boolean canAttack = this.isValidTarget(target);
-                boolean sprinting = mc.player.isSprinting();
-                if (onGround && canAttack && sprinting) {
-                    this.isFlushing = true;
-                    this.attackTarget = target;
-                    this.attacksRemaining = AntiKB.INSTANCE.attackAmount.getValue().intValue();
-                    this.sendMovePackets();
-                    this.applyKnockbackPacket();
-                    if (instantAttackEnabled && this.instantAttackProgress > 0.0f) {
-                        this.attacksRemaining = (int)this.instantAttackProgress;
-                        this.scheduleMotionFlush();
-                        this.isSuspending = false;
-                        this.suspendTicks = 0;
-                        this.isFlushing = false;
-                        this.isInstantAttacking = true;
-                        ZenClient.serverTickRate = 4.0f;
-                    } else {
-                        this.doAttackSequence(tickEvent);
-                        this.scheduleMotionFlush();
-                        this.isSuspending = false;
-                        this.suspendTicks = 0;
-                        this.isFlushing = false;
-                    }
-                } else {
-                    this.release();
-                    if (instantAttackEnabled) {
-                        this.instantAttackProgress = 0.0f;
-                    }
-                    if (onGround && mc.player.isSprinting()) {
-                        mc.player.setSprinting(false);
-                    }
+            }
+        }
+
+        isAttacking = counterRemaining > 0;
+
+        if (counterRemaining > 0) {
+            if (!this.isAimingAtTarget()) {
+                ++this.noAimTicks;
+                this.debug("Failed (RayCast)");
+                return;
+            }
+            if (!mc.player.isSprinting()) {
+                ++this.noSprintTicks;
+                this.debug("Failed (Sprint)");
+                if (this.noSprintTicks >= 3) {
+                    this.resetAll();
                 }
                 return;
             }
-            return;
-        }
-        if (this.isInstantAttacking) {
-            this.instantAttackProgress -= 1.0f;
-            if (this.instantAttackProgress <= 0.0f) {
-                this.instantAttackProgress = 0.0f;
-                this.isInstantAttacking = false;
-                ZenClient.serverTickRate = 1.0f;
-                ChatUtil.print("done");
-            }
-        }
-        if (this.attacksRemaining > 0 && this.attackTarget != null) {
-            this.doAttackSequence(tickEvent);
+            this.noSprintTicks = 0;
+            this.attackReduce(this.target);
+            --counterRemaining;
+        } else if (compensating) {
+            this.compensateUntilMs = System.currentTimeMillis() + 10L;
         }
     }
 
@@ -389,115 +299,163 @@ extends AntiKBMode {
         if (mc.player == null) {
             return;
         }
-        if (this.hitCounter > 0) {
+        if (compensating
+                && (!inDelayWindow || KillAura.shouldKeepSprintInDelayWindow())
+                && AntiKB.INSTANCE.autoForwards.getValue()) {
             strafeEvent.setForward(1.0f);
         }
-        if (this.shouldJump) {
-            this.shouldJump = false;
-            if (mc.player.onGround() && mc.player.isSprinting() && !mc.player.hasEffect(MobEffects.JUMP) && !this.shouldIgnore()) {
-                strafeEvent.setSprinting(true);
-            }
-        }
     }
 
-    private void doAttackSequence(TickEvent tickEvent) {
-        if (this.attackTarget == null || !this.attackTarget.isAlive()) {
-            this.clearTarget();
-            return;
-        }
-        double maxReach = 3.7f;
-        if (this.getAABBDistance(this.attackTarget) > maxReach) {
-            this.clearTarget();
-            return;
-        }
-        isAttacking = true;
-        attackCount = this.attacksRemaining--;
-        this.attackCooldown = 2;
-        this.doAttack(this.attackTarget);
-        if (this.attacksRemaining <= 0) {
-            this.clearTarget();
-            if (AntiKB.INSTANCE.instantAttack.getValue()) {
-                ChatUtil.print("Attack (" + AntiKB.INSTANCE.attackAmount.getValue().intValue() + ")");
-            }
-        }
+    @Override
+    public void onDisconnect(DisconnectEvent disconnectEvent) {
+        this.resetAll();
     }
 
-    private boolean doAttack(Entity entity) {
-        if (mc.player == null || mc.gameMode == null) {
-            return false;
+    private void attackReduce(Entity entity) {
+        if (entity == null || mc.player == null || mc.getConnection() == null) {
+            return;
         }
-        if (AntiKB.INSTANCE.sprintStateCheck.getValue() && !mc.player.isSprinting()) {
-            ChatUtil.print("not sprinting");
-            return false;
+        if (!KillAura.attackAndLock()) {
+            return;
         }
-        boolean wasSprinting = mc.player.isSprinting();
-        if (wasSprinting) {
-            mc.player.setSprinting(false);
+        if (ZenClient.isReady()) {
+            ZenClient.getInstance().getEventBus().call(new EntityRemoveEvent(false, entity));
         }
-        mc.gameMode.attack(mc.player, entity);
+        mc.getConnection().send(ServerboundInteractPacket.createAttackPacket(entity, mc.player.isShiftKeyDown()));
         mc.player.swing(InteractionHand.MAIN_HAND);
-        if (wasSprinting) {
-            Vec3 velocity = mc.player.getDeltaMovement();
-            mc.player.setDeltaMovement(velocity.x * 0.6, velocity.y, velocity.z * 0.6);
-        }
-        if (!AntiKB.INSTANCE.instantAttack.getValue()) {
-            ChatUtil.print("Attack (" + this.attacksRemaining + ")");
-        }
-        return true;
+        Vec3 movement = mc.player.getDeltaMovement();
+        mc.player.setDeltaMovement(movement.x * 0.6, movement.y, movement.z * 0.6);
     }
 
-    private void sendMovePackets() {
-        if (mc.getConnection() == null) {
-            return;
-        }
-        while (!this.movePacketQueue.isEmpty()) {
-            Packet packet = this.movePacketQueue.poll();
-            if (packet == null) continue;
-            try {
-                mc.getConnection().send(packet);
-            } catch (Exception exception) {
-                exception.printStackTrace();
-            }
-        }
+    private Entity crosshairTarget() {
+        return mc.hitResult instanceof EntityHitResult hit ? hit.getEntity() : null;
     }
 
-    private void applyKnockbackPacket() {
-        if (this.knockbackPacket != null && mc.getConnection() != null) {
-            try {
-                this.knockbackPacket.handle(mc.getConnection());
-            } catch (Exception exception) {
-                exception.printStackTrace();
-            }
-            this.knockbackPacket = null;
+    private boolean isAimingAtTarget() {
+        if (this.target == null || mc.player == null) {
+            return false;
         }
+        if (!AntiKB.INSTANCE.requireKillAura.getValue()) {
+            return mc.hitResult instanceof EntityHitResult hit && hit.getEntity() == this.target;
+        }
+        return RotationUtil.isLookingAt(this.target,
+                Math.max(3.0, RotationUtil.getReachLimit()), 0.1f);
     }
 
-    private void scheduleMotionFlush() {
-        if (mc.getConnection() == null) {
-            return;
+    private boolean shouldNotEngage() {
+        if (mc.player == null || mc.getConnection() == null) {
+            return true;
         }
-        this.shouldFlushMotion = true;
+        if (mc.player.isUsingItem() || mc.player.isInLava() || mc.player.isInWater()) {
+            return true;
+        }
+        if (mc.level != null && mc.level.getBlockState(mc.player.blockPosition()).is(Blocks.COBWEB)) {
+            return true;
+        }
+        if (this.positionCorrection) {
+            return true;
+        }
+        if (mc.screen instanceof InventoryScreen) {
+            return true;
+        }
+        if (this.target == null || !this.target.isAlive()) {
+            return true;
+        }
+        if (mc.player.isDeadOrDying() || mc.player.isSpectator()) {
+            return true;
+        }
+        if (NoSlow.isHandling()) {
+            return true;
+        }
+        if (Scaffold.INSTANCE != null && Scaffold.INSTANCE.isEnabled()) {
+            return true;
+        }
+        Stuck stuck = Stuck.INSTANCE;
+        return stuck != null && stuck.isEnabled();
     }
 
     private boolean isAllowedPacket(Packet<?> packet) {
-        return packet instanceof ClientboundSetEntityMotionPacket || packet instanceof ClientboundSetHealthPacket || packet instanceof ClientboundPlayerPositionPacket || packet instanceof ClientboundSoundPacket || packet instanceof ClientboundPlayerChatPacket || packet instanceof ClientboundPlayerCombatKillPacket || packet instanceof ClientboundContainerClosePacket || packet instanceof ClientboundHurtAnimationPacket || packet instanceof ClientboundSetTitleTextPacket || packet instanceof ClientboundSetPlayerTeamPacket || packet instanceof ClientboundSystemChatPacket || packet instanceof ClientboundDisconnectPacket || packet instanceof ClientboundAnimatePacket && ((ClientboundAnimatePacket)packet).getId() != mc.player.getId();
+        return packet instanceof ClientboundSetEntityMotionPacket
+                || packet instanceof ClientboundSetHealthPacket
+                || packet instanceof ClientboundPlayerPositionPacket
+                || packet instanceof ClientboundSoundPacket
+                || packet instanceof ClientboundPlayerChatPacket
+                || packet instanceof ClientboundPlayerCombatKillPacket
+                || packet instanceof ClientboundContainerClosePacket
+                || packet instanceof ClientboundHurtAnimationPacket
+                || packet instanceof ClientboundSetTitleTextPacket
+                || packet instanceof ClientboundSetPlayerTeamPacket
+                || packet instanceof ClientboundSystemChatPacket
+                || packet instanceof ClientboundDisconnectPacket
+                || packet instanceof ClientboundAnimatePacket animation
+                && animation.getId() != mc.player.getId();
     }
 
-    private void release() {
-        this.isFlushing = true;
-        this.sendMovePackets();
-        this.applyKnockbackPacket();
-        this.scheduleMotionFlush();
-        this.isFlushing = false;
-        this.isSuspending = false;
-        this.suspendTicks = 0;
-        this.instantAttackProgress = 0.0f;
-        this.isInstantAttacking = false;
-        ZenClient.serverTickRate = 1.0f;
+    private void flushQueue() {
+        mc.execute(() -> {
+            if (mc.getConnection() == null) {
+                this.packetQueue.clear();
+                return;
+            }
+            Packet<ClientGamePacketListener> packet;
+            while ((packet = this.packetQueue.poll()) != null) {
+                try {
+                    packet.handle(mc.getConnection());
+                } catch (Exception exception) {
+                    this.packetQueue.clear();
+                    break;
+                }
+            }
+        });
+    }
+
+    private void restoreJumpKey() {
+        if (!this.jumpKeyForced) {
+            return;
+        }
+        this.jumpKeyForced = false;
+        if (mc.player == null || Scaffold.INSTANCE != null && Scaffold.INSTANCE.isEnabled()) {
+            return;
+        }
+        boolean down = InputConstants.isKeyDown(mc.getWindow().getWindow(), mc.options.keyJump.getKey().getValue());
+        mc.options.keyJump.setDown(down);
+    }
+
+    private void resetAll() {
+        this.flushQueue();
+        inDelayWindow = false;
+        isAttacking = false;
+        compensating = false;
+        this.positionCorrection = false;
+        this.delayTicks = 0;
+        counterRemaining = 0;
+        this.noAimTicks = 0;
+        this.noSprintTicks = 0;
+        this.compensateUntilMs = -1L;
+        this.jumpTicks = 0;
+        this.restoreJumpKey();
+        this.target = null;
+        handlingVelocity = false;
+    }
+
+    private void debug(String message) {
+        if (AntiKB.INSTANCE.debugLog.getValue()) {
+            ChatUtil.print(message);
+        }
+    }
+
+    /** 原版只会在这些状态下接受跳跃输入，避免把待处理的跳跃消耗在空中。 */
+    private static boolean canJumpNow(Player player) {
+        return player.onGround()
+                || player.isInWater()
+                || player.isInLava()
+                || player.onClimbable();
     }
 
     static {
-        isAttacking = false;
-        attackCount = 0;
+        handlingVelocity = false;
+        compensating = false;
+        inDelayWindow = false;
+        counterRemaining = 0;
     }
 }

@@ -3,6 +3,8 @@ package shit.zen.modules.impl.combat;
 import java.util.Arrays;
 import java.util.Optional;
 import shit.zen.event.impl.DisconnectEvent;
+import shit.zen.event.impl.EntityHurtEvent;
+import shit.zen.event.impl.EntityRemoveEvent;
 import shit.zen.event.impl.GameTickEvent;
 import shit.zen.event.impl.MotionEvent;
 import shit.zen.event.impl.PreMotionEvent;
@@ -38,6 +40,13 @@ extends Module {
     public final NumberSetting attackAmount = new NumberSetting("Attack amount", 5.0, 1.0, 20.0, 1, () -> mode.is("NoXZ"));
     public final BooleanSetting instantAttack = new BooleanSetting("Instant Attack", false, () -> mode.is("NoXZ"));
     public final BooleanSetting sprintStateCheck = new BooleanSetting("Sprint state check", true, () -> mode.is("NoXZ"));
+    public final BooleanSetting jumpReset = new BooleanSetting("Jump Reset", true, () -> mode.is("NoXZ"));
+    public final ModeSetting reduceMode = new ModeSetting("Reduce Mode", "Velocity", "Velocity + Ping")
+            .withDefault("Velocity + Ping").withVisibility(() -> mode.is("NoXZ"));
+    public final BooleanSetting requireKillAura = new BooleanSetting("Require KillAura", false, () -> mode.is("NoXZ"));
+    public final NumberSetting maxDelayTicks = new NumberSetting("Max Delay Ticks", 20, 1, 100, 1, () -> mode.is("NoXZ"));
+    public final BooleanSetting autoForwards = new BooleanSetting("Auto Forwards", true, () -> mode.is("NoXZ"));
+    public final BooleanSetting debugLog = new BooleanSetting("Debug Log", false, () -> mode.is("NoXZ"));
 
     public AntiKB() {
         super("AntiKB", Category.COMBAT);
@@ -129,6 +138,24 @@ extends Module {
             return;
         }
         optional.get().onReceivePacket(receivePacketEvent);
+    }
+
+    @EventTarget
+    public void onAttack(EntityRemoveEvent entityRemoveEvent) {
+        Optional<AntiKBMode> optional = AntiKBMode.findMode(mode.getValue());
+        if (FireballBlink.INSTANCE.isEnabled() || HighJump.INSTANCE.isEnabled() || optional.isEmpty()) {
+            return;
+        }
+        optional.get().onAttack(entityRemoveEvent);
+    }
+
+    @EventTarget
+    public void onEntityHurt(EntityHurtEvent entityHurtEvent) {
+        Optional<AntiKBMode> optional = AntiKBMode.findMode(mode.getValue());
+        if (FireballBlink.INSTANCE.isEnabled() || HighJump.INSTANCE.isEnabled() || optional.isEmpty()) {
+            return;
+        }
+        optional.get().onEntityHurt(entityHurtEvent);
     }
 
     @EventTarget

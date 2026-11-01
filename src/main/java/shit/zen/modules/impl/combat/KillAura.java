@@ -72,6 +72,8 @@ public class KillAura extends Module {
     public static Entity target;
     public static Entity aimingTarget;
     public static List<Entity> targetList = new ArrayList<>();
+    /** NoXZ 自己发包攻击期间，短暂阻止 KillAura 重复攻击。 */
+    private static long noXZAttackLockUntil;
 
     // Fields kept in sync with the obfuscated jar: 12 BooleanSetting / 7
     // NumberSetting / 3 ModeSetting, in declaration order.
@@ -427,6 +429,7 @@ public class KillAura extends Module {
             this.attacks = 0.0f;
             return;
         }
+        if (System.currentTimeMillis() < noXZAttackLockUntil) return;
         if (targetList.isEmpty()) return;
 
         HitResult hitResult = mc.hitResult;
@@ -560,6 +563,30 @@ public class KillAura extends Module {
         if (this.delayMode.is("1.9")) {
             this.sprintCounter = (int) mc.player.getCurrentItemAttackStrengthDelay();
         }
+    }
+
+    /**
+     * NoXZ 接管攻击前的校验与锁定：目标仍然有效且在攻击距离内时返回 true，
+     * 并短暂阻止 KillAura 在同一窗口内再次发包。
+     */
+    public static boolean attackAndLock() {
+        if (INSTANCE == null || !INSTANCE.isEnabled() || mc.player == null) {
+            return false;
+        }
+        Entity entity = target;
+        if (entity == null || !entity.isAlive() || entity.isRemoved()) {
+            return false;
+        }
+        if (mc.player.distanceTo(entity) > INSTANCE.aimRange.getValue().floatValue() + 1.0) {
+            return false;
+        }
+        noXZAttackLockUntil = System.currentTimeMillis() + 50L;
+        return true;
+    }
+
+    /** NoXZ 延迟窗口内是否应保持疾跑（用于决定是否强制前进输入）。 */
+    public static boolean shouldKeepSprintInDelayWindow() {
+        return INSTANCE != null && INSTANCE.isEnabled() && INSTANCE.keepSprint.getValue();
     }
 
     private boolean isWebPlacing() {

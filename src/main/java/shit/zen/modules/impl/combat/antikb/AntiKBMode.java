@@ -4,6 +4,8 @@ import java.util.HashMap;
 import java.util.Optional;
 import shit.zen.ClientBase;
 import shit.zen.event.impl.DisconnectEvent;
+import shit.zen.event.impl.EntityHurtEvent;
+import shit.zen.event.impl.EntityRemoveEvent;
 import shit.zen.event.impl.GameTickEvent;
 import shit.zen.event.impl.MotionEvent;
 import shit.zen.event.impl.PreMotionEvent;
@@ -65,6 +67,14 @@ extends ClientBase {
     }
 
     public void onRender2D(Render2DEvent render2DEvent) {
+    }
+
+    /** 攻击事件（EntityRemoveEvent 的 pre-attack 阶段）。 */
+    public void onAttack(EntityRemoveEvent entityRemoveEvent) {
+    }
+
+    /** 玩家受伤事件，供模式记录攻击者。 */
+    public void onEntityHurt(EntityHurtEvent entityHurtEvent) {
     }
 
     public boolean isActive() {

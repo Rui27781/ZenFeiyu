@@ -116,6 +116,32 @@ extends ClientBase {
         return maxAngle >= 180.0f || angleDegrees <= (double)maxAngle;
     }
 
+    /** 实体交互距离（原版 3.0 格）。 */
+    public static double getReachLimit() {
+        return 3.0;
+    }
+
+    /**
+     * 指定实体是否仍在 reach 内，且当前（静默）旋转已经对准它的碰撞箱最近点。
+     */
+    public static boolean isLookingAt(Entity entity, double reach, float threshold) {
+        if (mc.player == null || entity == null) {
+            return false;
+        }
+        Vec3 eye = mc.player.getEyePosition();
+        Vec3 closest = closestPoint(eye, entity.getBoundingBox());
+        if (closest.distanceTo(eye) > reach) {
+            return false;
+        }
+        Rotation look = RotationHandler.targetRotation != null
+                ? RotationHandler.targetRotation
+                : new Rotation(mc.player.getYRot(), mc.player.getXRot());
+        Rotation needed = exactRotation(eye, closest);
+        float yawDiff = Math.abs(Mth.wrapDegrees(needed.getYaw() - look.getYaw()));
+        float pitchDiff = Math.abs(needed.getPitch() - look.getPitch());
+        return yawDiff <= threshold && pitchDiff <= threshold;
+    }
+
     public static Rotation rotationFromEyes(Vec3 target) {
         if (mc.player == null) {
             return null;
