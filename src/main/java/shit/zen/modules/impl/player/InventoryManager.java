@@ -125,6 +125,25 @@ public class InventoryManager extends Module {
         }
     }
 
+    /** 是否只处理玩家背包界面（不代理其它容器）。 */
+    public boolean isInventoryOnly() {
+        return this.inventoryOnlySetting.getValue();
+    }
+
+    /** 是否还有待处理的背包操作（发包队列、正在执行或刚执行过）。 */
+    public boolean hasPendingActions() {
+        return isPerformingAction || !this.pendingPackets.isEmpty() || this.didInventoryAction;
+    }
+
+    /** 供 Disabler 的 Silent Inventory 使用：整理期间压住疾跑输入。 */
+    public void suppressSprintForInventory() {
+        if (mc.player == null) {
+            return;
+        }
+        mc.options.keySprint.setDown(false);
+        mc.player.setSprinting(false);
+    }
+
     @EventTarget
     public void onPacket(PacketEvent event) {
         Packet<?> packet = event.getPacket();
