@@ -2,14 +2,14 @@ package shit.zen.modules.impl.movement;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.PoseStack;
-import java.awt.Color;
-import java.util.Comparator;
-import java.util.HashSet;
+import com.mojang.blaze3d.vertex.Tesselator;
 import java.util.List;
-import java.util.PriorityQueue;
+import java.util.Random;
 import java.util.concurrent.CopyOnWriteArrayList;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.protocol.Packet;
@@ -25,9 +25,7 @@ import net.minecraft.world.level.block.AirBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
-import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
-import org.apache.commons.lang3.RandomUtils;
 import shit.zen.ClientBase;
 import shit.zen.event.impl.JumpEvent;
 import shit.zen.event.impl.MotionEvent;
@@ -35,6 +33,7 @@ import shit.zen.event.impl.PacketEvent;
 import shit.zen.event.impl.PreMotionEvent;
 import shit.zen.event.impl.Render2DEvent;
 import shit.zen.event.impl.RenderEvent;
+import shit.zen.event.impl.StrafeEvent;
 import shit.zen.event.impl.TickEvent;
 import shit.zen.event.impl.UpdateHeldItemEvent;
 import shit.zen.modules.Category;
@@ -47,44 +46,64 @@ import shit.zen.utils.game.MotionSimulator;
 import shit.zen.utils.game.MovementUtil;
 import shit.zen.utils.game.RayTraceUtil;
 import shit.zen.utils.game.RotationUtil;
-import shit.zen.utils.math.MathUtil;
 import shit.zen.utils.misc.PacketUtil;
-import shit.zen.utils.misc.ReflectionUtil;
 import shit.zen.utils.render.RenderUtil;
+
 import shit.zen.utils.rotation.Rotation;
 import shit.zen.utils.rotation.RotationHandler;
+import shit.zen.utils.rotation.RotationSmoother;
 import shit.zen.event.EventTarget;
 
 public class Scaffold extends Module {
     public static Scaffold INSTANCE;
 
-    public final ModeSetting mode = new ModeSetting("Mode", "Normal", "Telly Bridge", "Old Telly", "Keep Y").withDefault("Normal");
-    public final BooleanSetting eagle = new BooleanSetting("Eagle", true, () -> this.mode.is("Normal"));
-    public final BooleanSetting sneak = new BooleanSetting("Sneak", true);
-    public final BooleanSetting snap = new BooleanSetting("Snap", true, () -> this.mode.is("Normal"));
+    public final ModeSetting mode = new ModeSetting("Mode", "Normal", "Telly Bridge", "Keep Y").withDefault("Normal");
+    public final NumberSetting tellyAirTicks = new NumberSetting("AirTicks", 1, 0, 3, 0.1, () -> this.mode.is("Telly Bridge"));
+    public final NumberSetting tellyPlaceDelay = new NumberSetting("PlaceDelay", 1, 0, 20, 1, () -> this.mode.is("Telly Bridge"));
+    public final BooleanSetting eagle = new BooleanSetting("Eagle", false, () -> this.mode.is("Normal"));
     public final BooleanSetting renderItemSpoof = new BooleanSetting("Render Item Spoof", true);
-    public final NumberSetting rotationTick = new NumberSetting("Rotation Tick", 3, 1, 6, 1);
-    public final BooleanSetting clutch = new BooleanSetting("Clutch", true);
+    public final BooleanSetting clutch = new BooleanSetting("Clutch", false);
+    public final NumberSetting clutchDepth = new NumberSetting("Clutch Depth", 4, 2, 5, 1, this.clutch::getValue);
+    public final ModeSetting swingMode = new ModeSetting("Swing", "Both", "Server").withDefault("Both");
+    public final BooleanSetting blockCounter = new BooleanSetting("Block Counter", true);
+    public final BooleanSetting onTickRot = new BooleanSetting("OnTickRot", false);
+    public final NumberSetting rotationSpeed = new NumberSetting("Rotation Speed", 153.9, 0, 360, 5, () -> !this.syncRotSpeed.getValue());
+    public final NumberSetting jitter = new NumberSetting("Jitter", 2.5, 0.0, 5.0, 0.1);
+    public final BooleanSetting syncRotSpeed = new BooleanSetting("Sync RotSpeed", false);
+    public final NumberSetting turnSpeed = new NumberSetting("Turn Speed", 73.4, 0, 360, 5, this.syncRotSpeed::getValue);
+    public final NumberSetting returnSpeed = new NumberSetting("Return Speed", 101.8, 0, 360, 5, this.syncRotSpeed::getValue);
+    public final ModeSetting switchMode = new ModeSetting("Switch Mode", "Normal", "Hotbar", "Full").withDefault("Hotbar");
+    public final BooleanSetting bpsLimit = new BooleanSetting("Limit BPS", true);
+    public final NumberSetting bps = new NumberSetting("BPS", 3.5, 2.0, 10.0, 0.1, this.bpsLimit::getValue);
+    public final BooleanSetting mark = new BooleanSetting("Mark", true);
+    public final NumberSetting markRed = new NumberSetting("Mark Red", 255, 0, 255, 1, () -> this.mark.getValue());
+    public final NumberSetting markGreen = new NumberSetting("Mark Green", 55, 0, 255, 1, () -> this.mark.getValue());
+    public final NumberSetting markBlue = new NumberSetting("Mark Blue", 100, 0, 255, 1, () -> this.mark.getValue());
+    public final NumberSetting markAlpha = new NumberSetting("Mark Alpha", 130, 0, 255, 1, () -> this.mark.getValue());
 
-    public Rotation correctRotation = new Rotation();
     public Rotation rots = new Rotation();
     public Rotation lastRots = new Rotation();
+    /** 转头平滑(惯性+波动), 与 KillAura 共用同一实现。 */
+    private final RotationSmoother rotSmoother = new RotationSmoother(new Random());
+    /** 抖动独立随机源: 不能和 smoother 共用, 否则平滑器的白噪声会与抖动相关。 */
+    private final Random jitterRandom = new Random();
     public int targetYLevel = -1;
     public int velocityDelay = 0;
 
     private int oldSlot;
+    private int altSlot = -1;
+    private boolean slotActive;
+    private int slotActiveTick;
+    private int slotTicks;
     private PlacementTarget currentPlacement;
-    private int eagleTimer;
-    private int groundTicks = 0;
     private int airTicks = 0;
     private int rotationDelay = 0;
     private final CopyOnWriteArrayList<CopyOnWriteArrayList<Packet<?>>> packetBatches = new CopyOnWriteArrayList<>();
-    private int jitterCounter;
-    private double yawDiff;
-    private double pitchDiff;
-    private double lastYawDiff = Double.NaN;
-    private double lastPitchDiff = Double.NaN;
     private boolean canBuildNow;
+    private BlockPos lastC05Position;
+    private int tellyPlaceDelayTimer;
+
+
 
     public Scaffold() {
         super("Scaffold", Category.MOVEMENT);
@@ -95,19 +114,20 @@ public class Scaffold extends Module {
     public void onEnable() {
         if (mc.player != null) {
             this.oldSlot = mc.player.getInventory().selected;
+            this.altSlot = this.oldSlot;
+            this.slotActive = false;
+            this.slotActiveTick = 0;
+            this.slotTicks = 0;
             this.rots.setYawPitch(mc.player.getYRot() - 180.0f, mc.player.getXRot());
             this.lastRots.setYawPitch(mc.player.yRotO - 180.0f, mc.player.xRotO);
             this.currentPlacement = null;
             this.targetYLevel = 10000;
             this.velocityDelay = 0;
-            this.jitterCounter = 0;
-            this.yawDiff = 0.0;
-            this.pitchDiff = 0.0;
-            this.lastYawDiff = Double.NaN;
-            this.lastPitchDiff = Double.NaN;
             this.canBuildNow = true;
+            this.lastC05Position = null;
             this.packetBatches.clear();
             this.packetBatches.add(new CopyOnWriteArrayList<>());
+            this.rotSmoother.reset();
         }
         super.onEnable();
     }
@@ -122,8 +142,13 @@ public class Scaffold extends Module {
             mc.options.keyJump.setDown(jumpDown);
             mc.options.keyShift.setDown(shiftDown);
             mc.options.keyUse.setDown(false);
-            mc.player.getInventory().selected = this.oldSlot;
+            if (this.slotActive) {
+                mc.player.getInventory().selected = this.altSlot;
+                this.slotActive = false;
+            }
             this.canBuildNow = true;
+            this.lastC05Position = null;
+            this.rotSmoother.reset();
             ClientBase.delayPackets.clear();
         }
         super.onDisable();
@@ -150,8 +175,11 @@ public class Scaffold extends Module {
 
     @EventTarget
     public void onUpdateHeldItem(UpdateHeldItemEvent event) {
-        if (this.renderItemSpoof.getValue() && event.getHand() == InteractionHand.MAIN_HAND && mc.player != null) {
-            event.setItemStack(mc.player.getInventory().getItem(this.oldSlot));
+        if (event.getHand() == InteractionHand.MAIN_HAND && mc.player != null) {
+            boolean silenceActive = this.slotActive && !this.switchMode.is("Normal");
+            if ((silenceActive || this.renderItemSpoof.getValue()) && this.altSlot >= 0) {
+                event.setItemStack(mc.player.getInventory().getItem(this.altSlot));
+            }
         }
     }
 
@@ -167,31 +195,60 @@ public class Scaffold extends Module {
         if (event.isPost() && mc.player != null) {
             if (mc.player.onGround()) {
                 this.airTicks = 0;
-                this.groundTicks++;
             } else {
-                this.groundTicks = 0;
                 this.airTicks++;
             }
+        }
+    }
+
+    // 限制 BPS = 限制玩家移动速度: 超速时停止前进输入, 让玩家减速回限制内
+    @EventTarget
+    public void onStrafe(StrafeEvent strafeEvent) {
+        if (mc.player == null) return;
+        if (!this.bpsLimit.getValue()) return;
+        double limit = this.bps.getValue().doubleValue();
+        if (limit >= 10.0) return;
+        double maxSpeed = limit / 20.0;
+        if (MovementUtil.getSpeed() > maxSpeed) {
+            strafeEvent.setForward(0.0f);
+            strafeEvent.setStrafe(0.0f);
         }
     }
 
     @EventTarget(value = 1)
     public void onTick(TickEvent event) {
         if (mc.player == null) return;
+        if (this.slotActive && this.slotActiveTick != this.slotTicks) {
+            mc.player.getInventory().selected = this.altSlot;
+            this.slotActive = false;
+        }
+        this.slotTicks++;
+
         this.packetBatches.add(new CopyOnWriteArrayList<>());
         if (this.velocityDelay > 0) this.velocityDelay--;
         if (mc.player.onGround() && this.velocityDelay <= 30) this.velocityDelay = 0;
 
+        boolean offhandPlaceable = BlockUtil.isPlaceable(mc.player.getOffhandItem());
         int placeableSlot = -1;
-        for (int i = 0; i < 9; i++) {
-            ItemStack stack = mc.player.getInventory().getItem(i);
-            if (stack.getItem() instanceof BlockItem && BlockUtil.isPlaceable(stack)) {
-                placeableSlot = i;
-                break;
+        if (!offhandPlaceable) {
+            for (int i = 0; i < 9; i++) {
+                ItemStack stack = mc.player.getInventory().getItem(i);
+                if (stack.getItem() instanceof BlockItem && BlockUtil.isPlaceable(stack)) {
+                    placeableSlot = i;
+                    break;
+                }
             }
         }
-        if (placeableSlot != -1 && mc.player.getInventory().selected != placeableSlot) {
+        boolean hasBlocks = offhandPlaceable || placeableSlot != -1;
+
+        // Switch Mode logic
+        if (placeableSlot != -1 && placeableSlot != mc.player.getInventory().selected) {
+            if (!this.slotActive) {
+                this.altSlot = mc.player.getInventory().selected;
+            }
             mc.player.getInventory().selected = placeableSlot;
+            this.slotActive = true;
+            this.slotActiveTick = this.slotTicks;
         }
 
         boolean jumpHeld = InputConstants.isKeyDown(mc.getWindow().getWindow(), mc.options.keyJump.getKey().getValue());
@@ -205,16 +262,18 @@ public class Scaffold extends Module {
         }
 
         this.applyRotations();
-        boolean firstGroundTick = false;
+        if (this.currentPlacement == null) {
+            this.tellyPlaceDelayTimer = 0;
+        } else {
+            this.tellyPlaceDelayTimer++;
+        }
         this.canBuildNow = true;
-        if (this.currentPlacement != null && placeableSlot != -1) {
-            if (this.groundTicks == 1 && mc.options.keyJump.isDown()) {
-                firstGroundTick = true;
-            }
+        if (this.currentPlacement != null && hasBlocks) {
             if (this.clutch.getValue() && mc.player.getDeltaMovement().y < -0.1) {
                 MotionSimulator sim = new MotionSimulator(mc.player);
                 sim.simulateWithFriction(2);
-                if (this.currentPlacement.position.getY() > sim.y) {
+                // 预测位置需低于放置层超过 clutchDepth 才进入 clutch, 避免正常搭路时轻微下落误触发
+                if (this.currentPlacement.position.getY() > sim.y + this.clutchDepth.getValue().doubleValue()) {
                     this.canBuildNow = false;
                 }
             }
@@ -222,64 +281,68 @@ public class Scaffold extends Module {
         if (mc.player.onGround()) {
             this.canBuildNow = true;
         }
-        this.correctRotation = this.mode.is("Telly Bridge") && this.canBuildNow
-                ? this.getTargetRotation(firstGroundTick)
-                : this.getPlayerYawRotation();
-
         if (this.currentPlacement == null) {
             ClientBase.delayPackets.clear();
         } else if (this.clutch.getValue() && (!this.canBuildNow || this.velocityDelay > 0) && this.rotationDelay <= 8) {
-            Rotation rotationToBlock = RotationUtil.rotationToBlock(this.currentPlacement.position, 1.0f);
-            Rotation previousTarget = RotationHandler.targetRotation;
-            this.rots.setYawPitch(rotationToBlock.getYaw(), rotationToBlock.getPitch());
-            RotationHandler.setTargetRotation(this.rots);
-            this.rotationDelay++;
-            ClientBase.delayPackets.add(() -> {});
-            ClientBase.delayPackets.add(() -> {
-                RotationHandler.prevSentRotation.setYawPitch(rotationToBlock.getYaw(), rotationToBlock.getPitch());
-                float yaw = rotationToBlock.getYaw();
-                if (yaw > -360.0f && yaw < 360.0f) {
-                    yaw += 720.0f;
-                }
-                if (previousTarget != null) {
-                    if (previousTarget.getYaw() != rotationToBlock.getYaw()) {
+            boolean useC06 = this.onTickRot.getValue() || !this.canBuildNow;
+            if (useC06) {
+                // C06 模式：不转头，让 onPreMotion 中的 c06Place 处理放置
+                this.rots.setYawPitch(mc.player.getYRot(), mc.player.getXRot());
+                RotationHandler.setTargetRotation(this.rots);
+                this.rotationDelay++;
+            } else {
+                Vec3 predictedEye = new Vec3(mc.player.getX() + mc.player.getDeltaMovement().x, mc.player.getY() + mc.player.getEyeHeight() + mc.player.getDeltaMovement().y, mc.player.getZ() + mc.player.getDeltaMovement().z);
+                Vec3 targetVec = faceAimPoint(this.currentPlacement.position, this.currentPlacement.facing, predictedEye);
+                Rotation rotationToBlock = RotationUtil.rotationFromPoints(targetVec.x, targetVec.y, targetVec.z, predictedEye.x, predictedEye.y, predictedEye.z);
+                Rotation previousTarget = RotationHandler.targetRotation;
+                this.rots.setYawPitch(rotationToBlock.getYaw(), rotationToBlock.getPitch());
+                RotationHandler.setTargetRotation(this.rots);
+                this.rotationDelay++;
+                ClientBase.delayPackets.add(() -> {});
+                ClientBase.delayPackets.add(() -> {
+                    RotationHandler.prevSentRotation.setYawPitch(rotationToBlock.getYaw(), rotationToBlock.getPitch());
+                    float yaw = rotationToBlock.getYaw();
+                    if (yaw > -360.0f && yaw < 360.0f) {
+                        yaw += 720.0f;
+                    }
+                    if (previousTarget != null) {
+                        if (previousTarget.getYaw() != rotationToBlock.getYaw()) {
+                            PacketUtil.sendQueued(new ServerboundMovePlayerPacket.Rot(yaw, rotationToBlock.getPitch(), mc.player.onGround()));
+                        }
+                    } else {
                         PacketUtil.sendQueued(new ServerboundMovePlayerPacket.Rot(yaw, rotationToBlock.getPitch(), mc.player.onGround()));
                     }
-                } else {
-                    PacketUtil.sendQueued(new ServerboundMovePlayerPacket.Rot(yaw, rotationToBlock.getPitch(), mc.player.onGround()));
-                }
-                this.doSnap();
-                this.onTick(event);
-            });
+                    this.doSnap();
+                    this.onTick(event);
+                });
+            }
         } else {
             this.canBuildNow = true;
+            boolean wasInRescue = this.rotationDelay > 0;
             ClientBase.delayPackets.clear();
             this.rotationDelay = 0;
-            if (this.mode.is("Normal") && this.snap.getValue()) {
-                this.rots.setYaw(this.correctRotation.getYaw());
+
+            // SkipTicks 结束后无论 onTickRot 设置如何，都发 C06 恢复服务端旋转追踪
+            if (wasInRescue) {
+                Rotation resumeRot = new Rotation(mc.player.getYRot() + rotationJitter(), mc.player.getXRot() + rotationJitter());
+                mc.getConnection().send(new ServerboundMovePlayerPacket.PosRot(
+                        mc.player.getX(), mc.player.getY(), mc.player.getZ(),
+                        resumeRot.getYaw(), resumeRot.getPitch(),
+                        mc.player.onGround()
+                ));
+            }
+
+            if (this.onTickRot.getValue()) {
+                // OnTickRot: 不转头, 保持当前视角, 只靠 C06 发包欺骗
+                this.rots.setYawPitch(mc.player.getYRot(), mc.player.getXRot());
             } else {
-                this.rots.setYaw(RotationUtil.moveTowards((float) this.getBlockDistance(), this.rots.getYaw(), this.correctRotation.getYaw()));
+                this.calculateTargetRotation();
             }
-            this.rots.setPitch(this.correctRotation.getPitch());
-            if (this.sneak.getValue()) {
-                this.eagleTimer++;
-                if (this.eagleTimer == 18) {
-                    if (mc.player.isSprinting()) {
-                        mc.options.keySprint.setDown(false);
-                        mc.player.setSprinting(false);
-                    }
-                    mc.options.keyShift.setDown(true);
-                } else if (this.eagleTimer >= 21) {
-                    mc.options.keyShift.setDown(false);
-                    this.eagleTimer = 0;
-                }
-            }
-            if (this.mode.is("Telly Bridge") || this.mode.is("Old Telly")) {
+
+            if (this.mode.is("Telly Bridge")) {
                 mc.options.keyJump.setDown(MovementUtil.isMoving() || jumpHeld);
-                if (this.airTicks < 1 && MovementUtil.isMoving()) {
-                    if (this.mode.is("Old Telly")) {
-                        this.rots.setYaw(mc.player.getYRot());
-                    }
+                if (this.airTicks < this.tellyAirTicks.getValue().intValue() && MovementUtil.isMoving()) {
+                    this.rots.setYaw(mc.player.getYRot());
                     this.lastRots.setYawPitch(this.rots.getYaw(), this.rots.getPitch());
                     return;
                 }
@@ -289,58 +352,64 @@ public class Scaffold extends Module {
                 if (this.eagle.getValue()) {
                     mc.options.keyShift.setDown(mc.player.onGround() && isOnBlockEdge(0.3f));
                 }
-                if (this.snap.getValue() && !jumpHeld) {
-                    this.resetSnap();
-                }
             }
         }
         this.lastRots.setYawPitch(this.rots.getYaw(), this.rots.getPitch());
-    }
-
-    private double getBlockDistance() {
-        if (this.mode.is("Old Telly")) return 180.0;
-        double base = Math.max(60.0, 360.0 / this.rotationTick.getValue().doubleValue());
-        return Math.max(base, 180.0);
     }
 
     @EventTarget
     public void onPreMotion(PreMotionEvent event) {
         event.setCancelled(true);
         if (mc.screen != null || mc.player == null || this.currentPlacement == null) return;
-        if ((this.mode.is("Telly Bridge") || this.mode.is("Old Telly")) && this.airTicks < 1) return;
-        boolean canRayTrace = RayTraceUtil.canRayTrace(RotationHandler.targetRotation, this.currentPlacement.facing, this.currentPlacement.position, false);
+
+        // C06 旋转欺骗模式: OnTickRot 开启或 SkipTicks 期间强制启用
+        if (this.onTickRot.getValue() || (!this.canBuildNow && this.rotationDelay > 0)) {
+            if (this.mode.is("Telly Bridge") && this.airTicks < this.tellyAirTicks.getValue().intValue()) return;
+            if (this.mode.is("Telly Bridge") && this.tellyPlaceDelay.getValue().intValue() > 0 && this.tellyPlaceDelayTimer < this.tellyPlaceDelay.getValue().intValue()) return;
+            this.c06Place();
+            return;
+        }
+
+        if (this.mode.is("Telly Bridge") && this.airTicks < this.tellyAirTicks.getValue().intValue()) return;
+        if (this.mode.is("Telly Bridge") && this.tellyPlaceDelay.getValue().intValue() > 0 && this.tellyPlaceDelayTimer < this.tellyPlaceDelay.getValue().intValue()) return;
+        boolean canRayTrace = RayTraceUtil.canRayTrace(RotationHandler.targetRotation, this.currentPlacement.facing, this.currentPlacement.position, true);
         if (!this.canBuildNow && !this.isPlacementReachable(this.currentPlacement)) return;
-        if (this.rotationDelay <= 0 && !this.mode.is("Old Telly") && !canRayTrace) return;
+        if (this.rotationDelay <= 0 && !this.mode.is("Telly Bridge") && !canRayTrace) return;
+
         this.doSnap();
     }
 
     @EventTarget
     public void onRender(RenderEvent event) {
-        if (this.currentPlacement == null || mc.gameRenderer == null) return;
+        if (mc.player == null || mc.level == null) return;
+        if (!this.mark.getValue()) return;
+        if (this.currentPlacement == null) return;
+
         PoseStack poseStack = event.poseStack();
-        Vec3 cameraPos = mc.gameRenderer.getMainCamera().getPosition();
         poseStack.pushPose();
-        poseStack.translate(-cameraPos.x, -cameraPos.y, -cameraPos.z);
-        AABB box = new AABB(this.currentPlacement.position.relative(this.currentPlacement.facing));
+        RenderSystem.disableDepthTest();
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
-        RenderSystem.disableDepthTest();
-        RenderSystem.depthMask(false);
-        Color color = new Color(74, 144, 226);
-        RenderSystem.setShaderColor(color.getRed() / 255.0f, color.getGreen() / 255.0f, color.getBlue() / 255.0f, 0.25f);
-        RenderUtil.drawSolidBox(box, poseStack);
-        RenderSystem.setShaderColor(color.getRed() / 255.0f, color.getGreen() / 255.0f, color.getBlue() / 255.0f, 0.75f);
-        RenderUtil.drawOutlineBox(box, poseStack);
-        RenderSystem.setShaderColor(1.0f, 1.0f, 1.0f, 1.0f);
+        RenderSystem.setShader(GameRenderer::getPositionShader);
+        Tesselator tesselator = RenderSystem.renderThreadTesselator();
+        BufferBuilder bufferBuilder = tesselator.getBuilder();
+        RenderSystem.setShaderColor(
+                this.markRed.getValue().floatValue() / 255.0f,
+                this.markGreen.getValue().floatValue() / 255.0f,
+                this.markBlue.getValue().floatValue() / 255.0f,
+                this.markAlpha.getValue().floatValue() / 255.0f);
+        RenderUtil.drawBoxVerts(bufferBuilder, poseStack.last().pose(),
+                new AABB(this.currentPlacement.position.relative(this.currentPlacement.facing)));
         RenderSystem.disableBlend();
         RenderSystem.enableDepthTest();
-        RenderSystem.depthMask(true);
+        RenderSystem.setShaderColor(1.0f, 1.0f, 1.0f, 1.0f);
         poseStack.popPose();
     }
 
     @EventTarget
     public void onRender2D(Render2DEvent event) {
         if (mc.player == null || mc.level == null) return;
+        if (!this.blockCounter.getValue()) return;
         int blockCount = this.getBlockSlot();
         if (blockCount == 0) return;
         String countText = String.valueOf(blockCount);
@@ -365,6 +434,10 @@ public class Scaffold extends Module {
                 total += stack.getCount();
             }
         }
+        ItemStack offhand = mc.player.getOffhandItem();
+        if (offhand.getItem() instanceof BlockItem && BlockUtil.isPlaceable(offhand)) {
+            total += offhand.getCount();
+        }
         return total;
     }
 
@@ -383,27 +456,284 @@ public class Scaffold extends Module {
                 && toBlock.normalize().dot(Vec3.atLowerCornerOf(target.facing.getNormal().multiply(-1)).normalize()) >= 0.0;
     }
 
-    private void resetSnap() {
-        if (mc.player == null || this.currentPlacement == null) return;
-        boolean lookingAtBlock = false;
-        HitResult result = RayTraceUtil.rayTrace(1.0f, this.rots);
-        if (result.getType() == HitResult.Type.BLOCK) {
-            BlockHitResult blockHit = (BlockHitResult) result;
-            if (blockHit.getBlockPos().equals(this.currentPlacement.position)
-                    && blockHit.getDirection() != Direction.UP) {
-                lookingAtBlock = true;
+    private void calculateTargetRotation() {
+        if (this.currentPlacement == null || mc.player == null) return;
+
+        // 不转优先: 上一次真正下发的朝向如果已经打中本 tick 的目标放置面(方块 + 面都对得上),
+        // 这一 tick 就完全不动 rotation —— rots / targetRotation 保持上一 tick 的值, 出站角
+        // 逐位相同, 服务端看到的转头增量是 0。
+        // 因果反过来: 让放置去适配朝向, 而不是朝向去追放置。转头只在"目标面换了"或
+        // "原朝向确实打不到了"时才发生, 这已经是最少的转头次数。
+        Rotation held = RotationHandler.targetRotation;
+        if (held != null && RayTraceUtil.canRayTrace(
+                held, this.currentPlacement.facing, this.currentPlacement.position, true)) {
+            return;
+        }
+
+        // 每 tick 一次机会: 预算在搜索开始时重置, 由 isRotationValidForPlacement 逐次扣减。
+        this.raycastBudget = ROTATION_RAYCAST_BUDGET;
+
+        // 1. 基于移动方向计算基础yaw
+        float realYaw = mc.player.getYRot();
+        if (mc.options.keyDown.isDown()) {
+            realYaw += 180.0f;
+            if (mc.options.keyLeft.isDown()) realYaw += 45.0f;
+            else if (mc.options.keyRight.isDown()) realYaw -= 45.0f;
+        } else if (mc.options.keyUp.isDown()) {
+            if (mc.options.keyLeft.isDown()) realYaw -= 45.0f;
+            else if (mc.options.keyRight.isDown()) realYaw += 45.0f;
+        } else if (mc.options.keyRight.isDown()) {
+            realYaw += 90.0f;
+        } else if (mc.options.keyLeft.isDown()) {
+            realYaw -= 90.0f;
+        }
+
+        float yaw = realYaw - 180.0f;
+        float idealPitch = 75.5f;
+        float currentPitch = this.rots.getPitch();
+
+        // 2. 理想 pitch 优先: 直线搭路时 75.5° 全程有效, 旋转恒定 = 最流畅状态。
+        if (isRotationValidForPlacement(new Rotation(yaw, idealPitch))) {
+            applyRotationWithSpeed(yaw, idealPitch);
+            return;
+        }
+
+        // 3. 75.5 失效: 当前 pitch 仍能命中就原地不动 —— 不要在理想角和就近角之间来回
+        //    横跳(调试证实 75.5↔83~88 每 tick 乒乓, 这就是"放一次甩一次"的直接原因),
+        //    只在几何真正变化时移动。
+        if (isRotationValidForPlacement(new Rotation(yaw, currentPitch))) {
+            applyRotationWithSpeed(yaw, currentPitch);
+            return;
+        }
+
+        // 3.5 直接瞄放置面上离眼睛最近的点: 构造上必然命中, 且旋转量比任何扫掠都小。
+        if (mc.player != null) {
+            Vec3 eye = mc.player.getEyePosition();
+            Rotation direct = RotationUtil.exactRotation(eye,
+                    faceAimPoint(this.currentPlacement.position, this.currentPlacement.facing, eye));
+            if (isRotationValidForPlacement(direct)) {
+                applyRotationWithSpeed(direct.getYaw(), direct.getPitch());
+                return;
             }
         }
-        if (!lookingAtBlock && mc.player.tickCount % 4 == 0) {
-            this.rots.setYaw(mc.player.getYRot() + RandomUtils.nextFloat(0.0f, 0.5f) - 0.25f);
+
+        // 4. 当前 pitch 也失效: 从当前 pitch 双向外扩, 取最小修正步。
+        Float nearest = findValidPitchNear(yaw, currentPitch);
+        if (nearest != null) {
+            applyRotationWithSpeed(yaw, nearest);
+            return;
         }
+
+        // 5. 当前邻域彻底无解: 从理想角就近找, 把旋转拉回基准。
+        Float towardIdeal = findValidPitchNear(yaw, idealPitch);
+        if (towardIdeal != null) {
+            applyRotationWithSpeed(yaw, towardIdeal);
+            return;
+        }
+
+        // 6. pitch 无解(yaw 偏了) -> 在目标面上找角度
+        Rotation optimal = findOptimalRotation();
+        if (optimal != null) {
+            applyRotationWithSpeed(optimal.getYaw(), optimal.getPitch());
+            return;
+        }
+
+        // 7. 全部失败: 保持当前旋转。绝不明知 raytrace 无效还把 75.5 发出去。
+        applyRotationWithSpeed(yaw, currentPitch);
     }
 
-    private Rotation getPlayerYawRotation() {
-        if (mc.player == null || this.currentPlacement == null) {
-            return new Rotation(0.0f, 0.0f);
+    /**
+     * 每 tick 允许花在旋转搜索上的 raycast 次数。
+     *
+     * <p>旧实现的搜索是死循环式的：{@link #findValidPitchNear} 从 0 到 30° 每 0.3°
+     * 探一次(101×2 = 202 次 raycast)，而兜底那一层在角度网格上扫 yaw/pitch，最早的逐 1°
+     * 版本是 180×25×2 = 9000 次。每个 raycast 都是一次 {@code level.clip} 加一次实体
+     * 查询，9000 次就是肉眼可见的卡顿 —— 而且这条路径在"贴着墙/天花板搭路"时每 tick 都会
+     * 走到。
+     *
+     * <p>现在：pitch 扫掠改成 3° 粗扫 + 0.3° 回退并受本预算约束；兜底那一层不再是角度
+     * 网格扫描，而是直接对目标面撒 3×3 个点算精确朝向（{@link #findOptimalRotation()}），
+     * 固定 9 次、不吃这份预算。预算耗尽就返回"保持当前旋转"—— 少转一次远好过卡一帧。
+     */
+    private int raycastBudget;
+    private static final int ROTATION_RAYCAST_BUDGET = 72;
+    /** 目标面兜底搜索的 3×3 采样比例（面内两轴）。 */
+    private static final double[] FACE_GRID = {0.5, 0.15, 0.85};
+
+    private boolean isRotationValidForPlacement(Rotation rotation) {
+        if (this.currentPlacement == null) return false;
+        if (this.raycastBudget <= 0) return false;
+        this.raycastBudget--;
+        return RayTraceUtil.canRayTrace(rotation, this.currentPlacement.facing, this.currentPlacement.position, true);
+    }
+
+    /**
+     * 从 center(理想 pitch)向两侧对称外扩(向下最多 30°, 向上直到 90°), 取距 center
+     * 最近的有效 pitch。先以 3° 粗扫定位区间, 再在区间内以 0.3° 回退到最小修正量 ——
+     * 结果与逐 0.3° 完全一致(区间内无解时回落到已验证过的粗解), 但 raycast 从 202 次
+     * 降到十几次。
+     */
+    private Float findValidPitchNear(float yaw, float center) {
+        if (this.currentPlacement == null) return null;
+
+        for (float offset = 0.0f; offset <= 30.0f; offset += 3.0f) {
+            float down = Mth.clamp(center - offset, -90.0f, 90.0f);
+            if (this.probePitch(yaw, down)) {
+                return this.refinePitch(yaw, center, offset, true);
+            }
+            float up = center + offset;
+            if (up <= 90.0f && this.probePitch(yaw, up)) {
+                return this.refinePitch(yaw, center, offset, false);
+            }
         }
-        return RotationUtil.rotationToBlock(this.currentPlacement.position, 0.0f);
+        return null;
+    }
+
+    private boolean probePitch(float yaw, float pitch) {
+        if (this.raycastBudget <= 0) return false;
+        return this.isRotationValidForPlacement(new Rotation(yaw, pitch));
+    }
+
+    /** 粗扫命中后, 在 (offset-3, offset) 内以 0.3° 步长回退到最小修正量。 */
+    private Float refinePitch(float yaw, float center, float coarseOffset, boolean downward) {
+        float start = Math.max(0.0f, coarseOffset - 3.0f);
+        for (float offset = start; offset < coarseOffset; offset += 0.3f) {
+            float test = downward ? Mth.clamp(center - offset, -90.0f, 90.0f) : center + offset;
+            if (test > 90.0f) break;
+            if (this.probePitch(yaw, test)) {
+                return test;
+            }
+        }
+        // 回退段无解或预算耗尽: 粗解本身是通过校验的, 用它。
+        return downward ? Mth.clamp(center - coarseOffset, -90.0f, 90.0f) : center + coarseOffset;
+    }
+
+    /**
+     * 最后兜底的搜索：在**目标面的采样点**上找角度，而不是在角度网格上找。
+     *
+     * <p>旧实现是 yaw 0..180 每 6° × pitch 0..25 每 5° × 双向，约 360 次 raycast（更早的
+     * 逐 1° 版本就是 180×25×2 = 9000 次）。而且循环是外层 yaw、内层 pitch：72 次的预算
+     * 只够走完三个 yaw 就断，于是这一层几乎必然返回 null，最后还是"保持当前旋转"——
+     * 兜底实际上等于不存在，白花预算。
+     *
+     * <p>反过来做才对：目标本来就是一个确定的方块 + 面，能打到它的角度集合就是这个面上
+     * 各点的视线方向。在面上撒 3×3 个点，每个点算一次精确朝向再验一次射线，最多 9 次就能
+     * 找到解（包括"面心被挡、边角是通的"这种角度网格根本摸不到的几何），并按"转得最少"
+     * 挑一个。代价比扫角度网格低一个数量级，找到的概率反而更高。
+     */
+    private Rotation findOptimalRotation() {
+        if (this.currentPlacement == null || mc.player == null) return null;
+        Vec3 eye = mc.player.getEyePosition();
+        BlockPos pos = this.currentPlacement.position;
+        Direction face = this.currentPlacement.facing;
+        Rotation current = this.rots != null
+                ? this.rots
+                : new Rotation(mc.player.getYRot(), mc.player.getXRot());
+        Rotation best = null;
+        double bestScore = Double.MAX_VALUE;
+        for (double u : FACE_GRID) {
+            for (double v : FACE_GRID) {
+                Vec3 point = faceSamplePoint(pos, face, u, v);
+                // 超出交互距离的采样点直接跳过：服务端不会接受那一次放置。
+                if (point.distanceToSqr(eye) > 20.25) continue;
+                Rotation candidate = RotationUtil.exactRotation(eye, point);
+                // 这里刻意不走共享预算：本层探测次数固定为 9 次，被前面的 pitch 扫掠
+                // 饿死就等于这层兜底不存在。
+                if (!RayTraceUtil.canRayTrace(candidate, face, pos, true)) continue;
+                double score = Math.abs(Mth.wrapDegrees(candidate.getYaw() - current.getYaw()))
+                        + Math.abs(candidate.getPitch() - current.getPitch()) * 1.5;
+                if (score < bestScore) {
+                    bestScore = score;
+                    best = candidate;
+                }
+            }
+        }
+        return best;
+    }
+
+    /** 目标面 3×3 网格上的采样点：法线方向固定在面上，另两轴按 u/v 在 inset 内插值。 */
+    private static Vec3 faceSamplePoint(BlockPos pos, Direction face, double u, double v) {
+        double inset = 0.15;
+        double minX = pos.getX() + inset;
+        double maxX = pos.getX() + 1.0 - inset;
+        double minY = pos.getY() + inset;
+        double maxY = pos.getY() + 1.0 - inset;
+        double minZ = pos.getZ() + inset;
+        double maxZ = pos.getZ() + 1.0 - inset;
+        // 面上那一轴取方块边界（与 faceAimPoint 同一个平面）。
+        double planeX = pos.getX() + 0.5 + face.getStepX() * 0.5;
+        double planeY = pos.getY() + 0.5 + face.getStepY() * 0.5;
+        double planeZ = pos.getZ() + 0.5 + face.getStepZ() * 0.5;
+        return switch (face) {
+            case DOWN, UP -> new Vec3(lerp(minX, maxX, u), planeY, lerp(minZ, maxZ, v));
+            case NORTH, SOUTH -> new Vec3(lerp(minX, maxX, u), lerp(minY, maxY, v), planeZ);
+            case WEST, EAST -> new Vec3(planeX, lerp(minY, maxY, u), lerp(minZ, maxZ, v));
+        };
+    }
+
+    private static double lerp(double from, double to, double t) {
+        return from + (to - from) * t;
+    }
+
+    private void applyRotationWithSpeed(float yaw, float pitch) {
+        if (this.currentPlacement == null || mc.player == null) return;
+
+        float speed;
+        if (this.syncRotSpeed.getValue()) {
+            Rotation current = RotationHandler.targetRotation;
+            if (current != null) {
+                float realYaw = mc.player.getYRot();
+                float currentDiffToReal = Math.abs(Mth.wrapDegrees(current.getYaw() - realYaw));
+                float newDiffToReal = Math.abs(Mth.wrapDegrees(yaw - realYaw));
+                if (newDiffToReal < currentDiffToReal) {
+                    // 转头回真实视角（如从前进切到后退，目标偏转=玩家实际视角）→ Return Speed
+                    speed = this.returnSpeed.getValue().floatValue();
+                } else {
+                    // 转头去目标面 → Turn Speed
+                    speed = this.turnSpeed.getValue().floatValue();
+                }
+            } else {
+                speed = this.turnSpeed.getValue().floatValue();
+            }
+        } else {
+            speed = this.rotationSpeed.getValue().floatValue();
+        }
+
+        // 抖动作为"目标偏移"参与平滑, 而不是直接叠加到出站值上。叠加到出站值上会让增量
+        // 离开灵敏度格点 —— Grim AimProcessor 用连续增量反推灵敏度, 格点外的偏移会把这个
+        // 反推毁掉, 反而比不抖更容易被抓。作为目标偏移, 它改变的是角速度, 输出仍被量化。
+        Rotation desired = new Rotation(yaw, pitch);
+        float jitterScale = this.jitter.getValue().floatValue();
+        if (jitterScale > 0.0f) {
+            desired = new Rotation(yaw + jitterOffset() * jitterScale,
+                    Mth.clamp(pitch + jitterOffset() * jitterScale, -90.0f, 90.0f));
+        }
+
+        Rotation rotation = desired;
+        if (speed < 360f) {
+            Rotation current = RotationHandler.targetRotation;
+            if (current == null) {
+                current = new Rotation(mc.player.getYRot(), mc.player.getXRot());
+            }
+            // 惯性+波动平滑, 代替旧的 clamp(diff, ±speed) 方波 —— Grim 的 DuplicateRotPlace
+            // 专抓"相邻两次放置时 yaw 增量完全相同", 匀速转头正是它的靶子。
+            // speed 语义不变: 度/tick 上限, speed 以内一步到位。
+            rotation = this.rotSmoother.tick(current, desired, speed);
+        }
+        // GCD 对齐: 增量取整到灵敏度步长, 锚定在上一次发出的 rotation 上。Scaffold 之前
+        // 从不量化, Grim AimProcessor 用连续增量 GCD 反推灵敏度时推不出稳定值, 和真人
+        // 一眼就能区分。量化误差 <= 半个步长, 相对方块面的角尺寸可忽略。
+        Rotation anchor = RotationHandler.prevRotation != null
+                ? RotationHandler.prevRotation
+                : new Rotation(mc.player.getYRot(), mc.player.getXRot());
+        rotation = RotationSmoother.patchConstantRotation(rotation, anchor);
+        // 挂在同一个方块面上时, 平滑器收敛后每 tick 输出同一个量化值。DuplicateRotPlace 的
+        // 判据是"|deltaYaw| > 2 且与上一次放置的增量差 < 1e-4", 所以大转角时必须让增量
+        // 本身有差别: 沿格点挪一格, 网格与幅度都不变。
+        rotation = this.rotSmoother.breakDuplicateDelta(rotation, anchor);
+
+        this.rots.setYawPitch(rotation.getYaw(), rotation.getPitch());
+        RotationHandler.setTargetRotation(this.rots);
     }
 
     private void applyRotations() {
@@ -421,6 +751,14 @@ public class Scaffold extends Module {
         int feetX = belowFeet.getX();
         int feetZ = belowFeet.getZ();
         if (mc.level.getBlockState(belowFeet).entityCanStandOn(mc.level, belowFeet, mc.player)) return;
+        // 目标粘滞: 上一 tick 找到的支撑面如果仍然可放, 直接复用, 不再重新搜。
+        // 每 tick 重搜有两个代价: 一是六个方向的 getBlockState 加距离比较, 二是在距离
+        // 并列的等价方块之间来回切换 —— 后者表现为"放一次甩一次", 也是转头的最大来源。
+        // 复用让旋转停在同一角上, 这是"尽量少的转头"最直接的一条。
+        if (this.currentPlacement != null && this.isPlacementStillValid(this.currentPlacement, eye)) {
+            return;
+        }
+        this.currentPlacement = null;
         if (this.isAbovePlaceable(eye, belowFeet)) return;
         for (int radius = 1; radius <= 6; radius++) {
             if (this.isAbovePlaceable(eye, new BlockPos(feetX, this.targetYLevel - radius, feetZ))) return;
@@ -433,6 +771,9 @@ public class Scaffold extends Module {
                                     feetX + (signX == 0 ? x : -x),
                                     this.targetYLevel - yOff,
                                     feetZ + (signZ == 0 ? z : -z));
+                            // 先按交互距离粗剪: 半径 6 的螺旋里大部分候选方块根本不在
+                            // 4.5 格的交互范围内, 每个都要走六次 getBlockState 才发现。
+                            if (!this.isWithinSearchReach(eye, test)) continue;
                             if (this.isAbovePlaceable(eye, test)) return;
                         }
                     }
@@ -441,37 +782,179 @@ public class Scaffold extends Module {
         }
     }
 
+    /** 方块中心到眼睛的距离是否还在交互范围内(4.5 格的平方, 与服务端放置距离同量级)。 */
+    private boolean isWithinSearchReach(Vec3 eye, BlockPos pos) {
+        double dx = pos.getX() + 0.5 - eye.x;
+        double dy = pos.getY() + 0.5 - eye.y;
+        double dz = pos.getZ() + 0.5 - eye.z;
+        return dx * dx + dy * dy + dz * dz <= 20.25;
+    }
+
+    /**
+     * 上一 tick 的目标是否还值得继续瞄。
+     *
+     * <p>旧实现从不清理 {@code currentPlacement}: 方块放下去之后它仍然是"目标", 于是
+     * 后续每 tick 都在瞄一个已经是实心的方块 —— RayTraceUtil 打得到它(它是方块), 但
+     * 放置必然失败, 而转头一直照做。这里把三种失效情况一次判掉: 支撑面不再可站立、
+     * 待放置位置已经不可替换、或眼睛到面已超出交互距离。
+     */
+    private boolean isPlacementStillValid(PlacementTarget target, Vec3 eye) {
+        if (target == null || target.facing == null) return false;
+        BlockPos support = target.position;
+        if (!mc.level.getBlockState(support).entityCanStandOnFace(mc.level, support, mc.player, target.facing)) {
+            return false;
+        }
+        if (!mc.level.getBlockState(support.relative(target.facing)).canBeReplaced()) {
+            return false;
+        }
+        return faceAimPoint(support, target.facing, eye).distanceToSqr(eye) <= 20.25;
+    }
+
+    /**
+     * 亚感知抖动源: 幅度 0.03~0.07°, 随机符号。它被加到"目标旋转"上再经过平滑与量化,
+     * 所以出站值始终落在灵敏度格点上, 不会破坏 GCD 反推; 真正保证相邻两次放置增量不同的
+     * 是 {@link RotationSmoother#breakDuplicateDelta}。
+     */
+    private float jitterOffset() {
+        float offset = 0.03f + this.jitterRandom.nextFloat() * 0.04f;
+        return this.jitterRandom.nextBoolean() ? offset : -offset;
+    }
+
     private boolean isAbovePlaceable(Vec3 from, BlockPos pos) {
         if (mc.level == null || mc.player == null) return false;
         if (!(mc.level.getBlockState(pos).getBlock() instanceof AirBlock)) return false;
         Vec3 center = new Vec3(pos.getX() + 0.5, pos.getY() + 0.5f, pos.getZ() + 0.5);
+        BlockPos bestSupport = null;
+        Direction bestFace = null;
+        double bestDistance = Double.MAX_VALUE;
         for (Direction direction : Direction.values()) {
             Vec3 offsetCenter = center.add(new Vec3(
                     direction.getNormal().getX() * 0.5,
                     direction.getNormal().getY() * 0.5,
                     direction.getNormal().getZ() * 0.5));
             BlockPos offset = pos.offset(direction.getNormal());
-            if (mc.level.getBlockState(offset).entityCanStandOnFace(mc.level, offset, mc.player, direction)) {
-                Vec3 delta = offsetCenter.subtract(from);
-                if (delta.lengthSqr() <= 20.25
-                        && delta.normalize().dot(Vec3.atLowerCornerOf(direction.getNormal()).normalize()) >= 0.0) {
-                    this.currentPlacement = new PlacementTarget(new BlockPos(offset.getX(), offset.getY(), offset.getZ()), direction.getOpposite());
-                    return true;
-                }
+            if (!mc.level.getBlockState(offset).entityCanStandOnFace(mc.level, offset, mc.player, direction)) {
+                continue;
+            }
+            Vec3 delta = offsetCenter.subtract(from);
+            if (delta.lengthSqr() > 20.25
+                    || delta.normalize().dot(Vec3.atLowerCornerOf(direction.getNormal()).normalize()) < 0.0) {
+                continue;
+            }
+            // Rank by the face point the view will actually aim at rather than by the block
+            // centre: the nearest face means the shortest rotation and the cleanest click ray.
+            Direction face = direction.getOpposite();
+            double distance = faceAimPoint(offset, face, from).distanceToSqr(from);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                bestSupport = offset;
+                bestFace = face;
             }
         }
-        return false;
+        if (bestSupport == null) {
+            return false;
+        }
+        this.currentPlacement = new PlacementTarget(
+                new BlockPos(bestSupport.getX(), bestSupport.getY(), bestSupport.getZ()), bestFace);
+        return true;
+    }
+
+    private boolean hasPlaceableInHand() {
+        if (mc.player == null) return false;
+        return BlockUtil.isPlaceable(mc.player.getMainHandItem())
+                || BlockUtil.isPlaceable(mc.player.getOffhandItem());
+    }
+
+    private InteractionHand placementHand() {
+        if (mc.player == null || BlockUtil.isPlaceable(mc.player.getMainHandItem())) {
+            return InteractionHand.MAIN_HAND;
+        }
+        return BlockUtil.isPlaceable(mc.player.getOffhandItem())
+                ? InteractionHand.OFF_HAND
+                : InteractionHand.MAIN_HAND;
     }
 
     private boolean shouldBuild() {
         if (mc.player == null || mc.level == null) return false;
         BlockPos below = BlockPos.containing(mc.player.getX(), mc.player.getY() - 0.5, mc.player.getZ());
-        return mc.level.isEmptyBlock(below) && BlockUtil.isPlaceable(mc.player.getMainHandItem());
+        return mc.level.isEmptyBlock(below) && this.hasPlaceableInHand();
+    }
+
+    private float rotationJitter() {
+        float offset = (float) (Math.random() * 0.04 + 0.03);
+        return Math.random() > 0.5 ? offset : -offset;
+    }
+
+    private void c06Place() {
+        if (this.currentPlacement == null || mc.player == null || mc.gameMode == null) return;
+
+        Direction facing = this.currentPlacement.facing;
+        if (facing == null) return;
+        if (facing == Direction.UP && !mc.player.onGround() && MovementUtil.isMoving()
+                && !mc.options.keyJump.isDown() && !this.mode.is("Normal")) return;
+
+        if (!this.hasPlaceableInHand()) return;
+        InteractionHand hand = this.placementHand();
+
+        // 计算朝向放置面的旋转
+        Vec3 aim = faceAimPoint(this.currentPlacement.position, facing, mc.player.getEyePosition());
+        Rotation targetRot = RotationUtil.exactRotation(mc.player.getEyePosition(), aim);
+
+        // 用即将发包的旋转做射线校验，打不中就不发
+        if (!RayTraceUtil.canRayTrace(targetRot, facing, this.currentPlacement.position, true)) {
+            return;
+        }
+
+        // 保存原视角
+        float origYaw = mc.player.getYRot();
+        float origPitch = mc.player.getXRot();
+
+        // 发包：C06 转到目标方向（带微抖）
+        mc.getConnection().send(new ServerboundMovePlayerPacket.PosRot(
+                mc.player.getX(), mc.player.getY(), mc.player.getZ(),
+                targetRot.getYaw() + rotationJitter(),
+                targetRot.getPitch() + rotationJitter(),
+                mc.player.onGround()
+        ));
+
+        // 放置方块
+        BlockHitResult hit = new BlockHitResult(aim, facing, this.currentPlacement.position, false);
+        InteractionResult result = mc.gameMode.useItemOn(mc.player, hand, hit);
+
+        if (result == InteractionResult.SUCCESS) {
+            if (!this.swingMode.is("Server")) {
+                mc.player.swing(hand);
+            }
+        }
+
+        // 发包：C06 恢复原视角（带微抖）
+        mc.getConnection().send(new ServerboundMovePlayerPacket.PosRot(
+                mc.player.getX(), mc.player.getY(), mc.player.getZ(),
+                origYaw + rotationJitter(),
+                origPitch + rotationJitter(),
+                mc.player.onGround()
+        ));
     }
 
     private void doSnap() {
         if (this.currentPlacement == null || mc.player == null || mc.gameMode == null) return;
-        if (!BlockUtil.isPlaceable(mc.player.getMainHandItem())) return;
+
+        if (!this.hasPlaceableInHand()) return;
+        InteractionHand hand = this.placementHand();
+
+        // SkipTicks时每次放置前都发送对准目标方块面的C05. Fix By StarSky
+        if (!this.canBuildNow && this.clutch.getValue() && !this.currentPlacement.position.equals(this.lastC05Position)) {
+            this.lastC05Position = this.currentPlacement.position;
+            Vec3 c05Eye = new Vec3(mc.player.getX() + mc.player.getDeltaMovement().x, mc.player.getY() + mc.player.getEyeHeight() + mc.player.getDeltaMovement().y, mc.player.getZ() + mc.player.getDeltaMovement().z);
+            Vec3 c05Target = faceAimPoint(this.currentPlacement.position, this.currentPlacement.facing, c05Eye);
+            Rotation c05Rotation = RotationUtil.rotationFromPoints(c05Target.x, c05Target.y, c05Target.z, c05Eye.x, c05Eye.y, c05Eye.z);
+            float yaw = c05Rotation.getYaw();
+            if (yaw > -360.0f && yaw < 360.0f) {
+                yaw += 720.0f;
+            }
+            PacketUtil.sendQueued(new ServerboundMovePlayerPacket.Rot(yaw, c05Rotation.getPitch(), mc.player.onGround()));
+        }
+
         Direction facing = this.currentPlacement.facing;
         boolean jumpHeld = InputConstants.isKeyDown(mc.getWindow().getWindow(), mc.options.keyJump.getKey().getValue());
         if (facing == null) return;
@@ -479,181 +962,77 @@ public class Scaffold extends Module {
             return;
         }
         if (!this.shouldBuild()) return;
-        BlockHitResult hit = new BlockHitResult(getHitVec(this.currentPlacement.position, facing), facing, this.currentPlacement.position, false);
-        InteractionResult result = mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, hit);
-        if (result == InteractionResult.SUCCESS) {
-            mc.player.swing(InteractionHand.MAIN_HAND);
+        if (!this.isAimingAtPlacementFace()) return;
+        BlockHitResult hit = new BlockHitResult(
+                faceAimPoint(this.currentPlacement.position, facing, mc.player.getEyePosition()), facing,
+                this.currentPlacement.position, false);
+        InteractionResult result = mc.gameMode.useItemOn(mc.player, hand, hit);
+        if (result == InteractionResult.SUCCESS && !this.swingMode.is("Server")) {
+            mc.player.swing(hand);
         }
     }
 
     public static boolean isOnBlockEdge(float inflate) {
         if (mc.level == null || mc.player == null) return false;
-        return !mc.level.getCollisions(mc.player,
-                mc.player.getBoundingBox().move(0.0, -0.5, 0.0).inflate(-inflate, 0.0, -inflate))
-                .iterator().hasNext();
-    }
-
-    private Rotation getTargetRotation(boolean firstGround) {
-        if (mc.player == null) return null;
-        if (!MovementUtil.isInputActive()) return this.getPlayerYawRotation();
-        if (this.currentPlacement == null) return new Rotation(mc.player.getYRot(), mc.player.getXRot());
-        Vec3 hitVec = getHitVec(this.currentPlacement.position, this.currentPlacement.facing);
-        Rotation rotation = RotationUtil.rotationFromVec(hitVec);
-        double yawDelta = RotationUtil.angleDiffDouble(rotation.getYaw(), RotationHandler.prevRotation.getYaw());
-        if (this.groundTicks > 0) {
-            if (!mc.options.keyJump.isDown()) {
-                return new Rotation(mc.player.getYRot(), 75.5f);
-            }
-            switch (this.groundTicks) {
-                case 1:
-                    if (!firstGround) {
-                        rotation.setYaw(RotationHandler.prevRotation.getYaw()
-                                + RotationUtil.clampAngle((float) yawDelta, (float) (yawDelta / 2.0)));
-                        rotation.setPitch(75.5f);
-                    } else {
-                        rotation = RotationUtil.rotationFromVec(hitVec);
-                    }
-                    ReflectionUtil.setJumpDelay(2);
-                    break;
-                case 2:
-                    return new Rotation(mc.player.getYRot(), 75.5f);
-                default:
-                    break;
-            }
-        } else {
-            float clampLimit = this.airTicks == 1 ? 90.0f : 50.0f;
-            clampLimit -= RandomUtils.nextFloat(0.001f, 0.006f);
-            rotation.setYaw(RotationHandler.prevRotation.getYaw()
-                    + RotationUtil.clampAngle((float) yawDelta, clampLimit));
-        }
-        rotation = this.findValidRotation(rotation, firstGround);
-        return this.getSnappedRotation(rotation);
-    }
-
-    private Rotation findValidRotation(Rotation rotation, boolean firstGround) {
-        if (mc.player == null || firstGround) return rotation;
-        Rotation reference = RotationHandler.prevRotation != null
-                ? RotationHandler.prevRotation
-                : (RotationHandler.targetRotation != null
-                ? RotationHandler.targetRotation
-                : new Rotation(mc.player.getYRot(), mc.player.getXRot()));
-        Rotation optimal = this.getOptimalRotation(rotation, reference.getYaw());
-        double maxStep = Math.max(45.0, 180.0 / Math.max(1.0, this.rotationTick.getValue().doubleValue()));
-        if (this.mode.is("Telly Bridge")) {
-            maxStep = Math.max(maxStep, 75.0);
-        }
-        return RotationUtil.smoothRotation(reference, optimal, maxStep);
-    }
-
-    private Rotation getSnappedRotation(Rotation rotation) {
-        if (mc.player == null) return rotation;
-        Rotation reference = RotationHandler.prevRotation != null
-                ? RotationHandler.prevRotation
-                : (RotationHandler.targetRotation != null
-                ? RotationHandler.targetRotation
-                : new Rotation(mc.player.getYRot(), mc.player.getXRot()));
-        this.yawDiff = Math.abs(Mth.wrapDegrees(rotation.getYaw() - reference.getYaw()));
-        this.pitchDiff = Math.abs(rotation.getPitch() - reference.getPitch());
-        boolean stuckPitch = this.pitchDiff > 2.0
-                && !Double.isNaN(this.lastPitchDiff)
-                && Math.abs(this.pitchDiff - this.lastPitchDiff) < 1.0e-4;
-        boolean stuckYaw = this.yawDiff > 2.0
-                && !Double.isNaN(this.lastYawDiff)
-                && Math.abs(this.yawDiff - this.lastYawDiff) < 1.0e-4;
-        if (stuckPitch || stuckYaw) {
-            rotation = rotation.clone();
-            float jitterYaw = MathUtil.randomFloat(0.095f, 0.19f);
-            float jitterPitch = MathUtil.randomFloat(0.016f, 0.055f);
-            if ((this.jitterCounter++ & 1) == 0) {
-                jitterYaw = -jitterYaw;
-            }
-            rotation.setYaw(rotation.getYaw() + jitterYaw);
-            rotation.setPitch(Mth.clamp(rotation.getPitch() + jitterPitch, -89.5f, 89.5f));
-            this.yawDiff = Math.abs(Mth.wrapDegrees(rotation.getYaw() - reference.getYaw()));
-            this.pitchDiff = Math.abs(rotation.getPitch() - reference.getPitch());
-        }
-        this.lastYawDiff = this.yawDiff;
-        this.lastPitchDiff = this.pitchDiff;
-        return rotation;
-    }
-
-    private Rotation getOptimalRotation(Rotation rotation, float referenceYaw) {
-        if (mc.player == null) return rotation;
-        Rotation optimal = rotation.clone();
-        double limit = 90.0;
-        double delta = Mth.wrapDegrees(optimal.getYaw() - referenceYaw);
-        if (Math.abs(delta) > limit) {
-            optimal.setYaw((float) (referenceYaw + Math.copySign(limit, delta)));
-        }
-        return optimal;
-    }
-
-    public static Vec3 getHitVec(BlockPos pos, Direction direction) {
-        double x = pos.getX() + 0.5;
-        double y = pos.getY() + 0.5;
-        double z = pos.getZ() + 0.5;
-        if (direction != Direction.UP && direction != Direction.DOWN) {
-            y += MathUtil.randomDouble(0.3, -0.3);
-        } else {
-            x += MathUtil.randomDouble(0.3, -0.3);
-            z += MathUtil.randomDouble(0.3, -0.3);
-        }
-        if (direction == Direction.WEST || direction == Direction.EAST) {
-            z += MathUtil.randomDouble(0.3, -0.3);
-        }
-        if (direction == Direction.SOUTH || direction == Direction.NORTH) {
-            x += MathUtil.randomDouble(0.3, -0.3);
-        }
-        return new Vec3(x, y, z);
-    }
-
-    private PlacementTarget findPlacementTarget(BlockPos origin) {
-        Direction[] directions = {Direction.DOWN, Direction.EAST, Direction.WEST, Direction.NORTH, Direction.SOUTH, Direction.UP};
-        PriorityQueue<PlacementCandidate> queue = new PriorityQueue<>(Comparator.comparingDouble(c -> {
-            BlockPos p = c.pos;
-            return Math.abs(p.getX() - origin.getX())
-                    + Math.abs(p.getY() - origin.getY())
-                    + Math.abs(p.getZ() - origin.getZ());
-        }));
-        HashSet<BlockPos> visited = new HashSet<>();
-        queue.offer(new PlacementCandidate(origin, null, 0));
-        visited.add(origin);
-        double maxDistance = 4.5;
-        while (!queue.isEmpty()) {
-            PlacementCandidate candidate = queue.poll();
-            for (Direction direction : directions) {
-                BlockPos neighbor = candidate.pos.relative(direction);
-                if (visited.contains(neighbor)) continue;
-                double distance = Math.abs(neighbor.getX() - origin.getX())
-                        + Math.abs(neighbor.getY() - origin.getY())
-                        + Math.abs(neighbor.getZ() - origin.getZ());
-                if (distance > maxDistance) continue;
-                visited.add(neighbor);
-                if (this.isValidBlock(neighbor)) {
-                    Direction face = direction == Direction.DOWN ? Direction.UP : direction.getOpposite();
-                    if (mc.level.getBlockState(neighbor).entityCanStandOnFace(mc.level, neighbor, mc.player, face)) {
-                        return new PlacementTarget(neighbor, face);
-                    }
-                } else if (candidate.depth < 3) {
-                    queue.offer(new PlacementCandidate(neighbor, direction, candidate.depth + 1));
+        double halfWidth = mc.player.getBbWidth() / 2.0;
+        if (inflate >= halfWidth) return true;
+        double margin = Math.min(inflate, halfWidth * 0.99);
+        Vec3 pos = mc.player.position();
+        for (int sx = -1; sx <= 1; sx += 2) {
+            for (int sz = -1; sz <= 1; sz += 2) {
+                BlockPos corner = BlockPos.containing(
+                    pos.x + sx * margin,
+                    pos.y - 1.0,
+                    pos.z + sz * margin
+                );
+                BlockState state = mc.level.getBlockState(corner);
+                if (!state.entityCanStandOn(mc.level, corner, mc.player)) {
+                    return true;
                 }
             }
         }
-        return null;
+        return false;
     }
 
-    private boolean isValidBlock(BlockPos pos) {
-        if (mc.level == null || mc.level.isOutsideBuildHeight(pos)) return false;
-        BlockState state = mc.level.getBlockState(pos);
-        if (!BlockUtil.isSolid(state)) return false;
-        if (state.isAir()) return false;
-        if (pos.getY() > this.targetYLevel + 1.0) return false;
-        return !state.getCollisionShape(mc.level, pos).isEmpty();
+    /**
+     * Point on the given face closest to the eye, inset from the edges.
+     *
+     * <p>Aiming at the face centre makes the rotation longer than it needs to be and, for a face
+     * seen at a steep angle, the ray can slip past the block. The nearest inset point is the
+     * shortest valid rotation and is the same point the click should report.
+     */
+    public static Vec3 faceAimPoint(BlockPos pos, Direction face, Vec3 eye) {
+        double inset = 0.15;
+        double x = face.getAxis() == Direction.Axis.X ? pos.getX() + 0.5 + face.getStepX() * 0.5
+                : Mth.clamp(eye.x, pos.getX() + inset, pos.getX() + 1.0 - inset);
+        double y = face.getAxis() == Direction.Axis.Y ? pos.getY() + 0.5 + face.getStepY() * 0.5
+                : Mth.clamp(eye.y, pos.getY() + inset, pos.getY() + 1.0 - inset);
+        double z = face.getAxis() == Direction.Axis.Z ? pos.getZ() + 0.5 + face.getStepZ() * 0.5
+                : Mth.clamp(eye.z, pos.getZ() + inset, pos.getZ() + 1.0 - inset);
+        return new Vec3(x, y, z);
+    }
+
+    public static Vec3 getFaceCenter(BlockPos pos, Direction direction) {
+        return new Vec3(
+                pos.getX() + 0.5 + direction.getNormal().getX() * 0.5,
+                pos.getY() + 0.5 + direction.getNormal().getY() * 0.5,
+                pos.getZ() + 0.5 + direction.getNormal().getZ() * 0.5);
+    }
+
+    public static Vec3 getHitVec(BlockPos pos, Direction direction) {
+        return getFaceCenter(pos, direction);
+    }
+
+    private boolean isAimingAtPlacementFace() {
+        if (this.currentPlacement == null || mc.player == null) return false;
+        Rotation rotation = RotationHandler.targetRotation;
+        if (rotation == null) {
+            rotation = this.rots;
+        }
+        if (rotation == null) return false;
+        return RayTraceUtil.canRayTrace(rotation, this.currentPlacement.facing, this.currentPlacement.position, true);
     }
 
     private record PlacementTarget(BlockPos position, Direction facing) {
-    }
-
-    private record PlacementCandidate(BlockPos pos, Direction direction, int depth) {
     }
 }
