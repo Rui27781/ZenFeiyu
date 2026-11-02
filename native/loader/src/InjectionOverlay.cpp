@@ -1,6 +1,7 @@
 #include "InjectionOverlay.h"
 
 #include "loader.h"
+#include "loader_settings.h"
 
 #include <QApplication>
 #include <QEasingCurve>
@@ -26,8 +27,9 @@ constexpr int kCornerRadius = 16;
 } // namespace
 
 InjectionOverlay::InjectionOverlay(unsigned long pid, const QString& target,
+                                   const QString& commandLine,
                                    QWidget* parent)
-        : QWidget(parent), pid_(pid), target_(target) {
+        : QWidget(parent), pid_(pid), target_(target), commandLine_(commandLine) {
     setWindowFlags(Qt::FramelessWindowHint
                    | Qt::Tool
                    | Qt::WindowStaysOnTopHint);
@@ -78,8 +80,20 @@ void InjectionOverlay::start() {
     // Run the (synchronous, can-block) inject() on a worker thread so the
     // overlay stays animated. Use invokeMethod with a queued connection to
     // bounce the result back to the GUI thread.
+    //
+    // Native Bypass (default OFF) is about WHEN, not HOW: the loader's watcher fires
+    // it the second a java process appears (see MainWindow::maybeAutoInject), so
+    // the DLL is already mapped in while the JVM is still coming up - long before
+    // the game window, which is where the old window-driven trigger used to wait.
+    //
+    // Deliberately a plain attach: an earlier revision restarted the instance with
+    // CREATE_SUSPENDED to be "first". That loses a launcher's child process, and
+    // NetEase-style launchers (which pass -DlauncherControlPort/-DToken and watch
+    // that child) then declare "fatal error during startup" and tear the game
+    // down. Attaching to the process the launcher itself started keeps the
+    // launcher happy and still gets in before the window.
     std::thread([this]() {
-        std::wstring err = inject(pid_);
+        std::wstring err = inject(static_cast<DWORD>(pid_));
         QString qerr = QString::fromWCharArray(err.c_str(),
                                                static_cast<int>(err.size()));
         QMetaObject::invokeMethod(this, [this, qerr]() {
@@ -128,7 +142,7 @@ void InjectionOverlay::onInjectResult(QString err) {
     seq->addAnimation(fadeOut);
 
     connect(seq, &QAbstractAnimation::finished, this, [this]() {
-        emit completed(injectOk_);
+        emit completed(injectOk_, pid_);
         close();
     });
     seq->start(QAbstractAnimation::DeleteWhenStopped);
@@ -215,9 +229,7 @@ void InjectionOverlay::paintEvent(QPaintEvent*) {
 
     // Status text.
     {
-        QFont f;
-        f.setFamilies({QStringLiteral("Microsoft YaHei"),
-                       QStringLiteral("Segoe UI")});
+        QFont f(QStringLiteral("Segoe UI"));
         f.setPointSize(12);
         f.setBold(true);
         p.setFont(f);

@@ -45,8 +45,9 @@ const char* kInjectBtnQss = R"qss(
 )qss";
 } // namespace
 
-InstanceRow::InstanceRow(unsigned long pid, const QString& title, QWidget* parent)
-        : QFrame(parent), pid_(pid), title_(title) {
+InstanceRow::InstanceRow(unsigned long pid, const QString& title,
+                         const QString& commandLine, QWidget* parent)
+        : QFrame(parent), pid_(pid), title_(title), commandLine_(commandLine) {
     setFixedHeight(kRowHeight);
     setAttribute(Qt::WA_StyledBackground, false);
     setMouseTracking(true);
@@ -74,12 +75,23 @@ InstanceRow::InstanceRow(unsigned long pid, const QString& title, QWidget* paren
     titleLabel_->setTextInteractionFlags(Qt::NoTextInteraction);
     layout->addWidget(titleLabel_, 1);
 
+    // Green tag showing this instance is one the loader restarted and injected
+    // itself. Hidden until Native Bypass has actually run for that pid.
+    nativeBadge_ = new QLabel(QStringLiteral("Native Bypass Injected"), this);
+    nativeBadge_->setAlignment(Qt::AlignVCenter | Qt::AlignLeft);
+    nativeBadge_->setStyleSheet(QStringLiteral(
+        "color: #3ddc84;"
+        "font-family: 'Segoe UI', 'Microsoft YaHei UI', sans-serif;"
+        "font-size: 11px; font-weight: 700;"));
+    nativeBadge_->setVisible(false);
+    layout->addWidget(nativeBadge_);
+
     injectBtn_ = new QPushButton(QStringLiteral("Inject"), this);
     injectBtn_->setCursor(Qt::PointingHandCursor);
     injectBtn_->setStyleSheet(QString::fromUtf8(kInjectBtnQss));
     injectBtn_->setFixedHeight(30);
     connect(injectBtn_, &QPushButton::clicked, this, [this] {
-        emit injectClicked(pid_, title_);
+        emit injectClicked(pid_, title_, commandLine_);
     });
     layout->addWidget(injectBtn_);
 }
@@ -88,6 +100,12 @@ void InstanceRow::updateTitle(const QString& title) {
     if (title == title_) return;
     title_ = title;
     titleLabel_->setText(title_);
+}
+
+void InstanceRow::setNativeBypassed(bool on) {
+    if (nativeBadge_) {
+        nativeBadge_->setVisible(on);
+    }
 }
 
 void InstanceRow::setEntrance(qreal v) {
@@ -127,6 +145,22 @@ void InstanceRow::animateHover(qreal target) {
     hoverAnim_->setEndValue(target);
     hoverAnim_->setEasingCurve(QEasingCurve::OutCubic);
     hoverAnim_->start();
+}
+
+void InstanceRow::flashHighlight() {
+    if (highlightAnim_) {
+        highlightAnim_->stop();
+        highlightAnim_->deleteLater();
+    }
+    highlightAnim_ = new QPropertyAnimation(this, "highlight", this);
+    highlightAnim_->setDuration(1400);
+    highlightAnim_->setStartValue(0.0);
+    highlightAnim_->setKeyValueAt(0.25, 1.0);   // fast in
+    highlightAnim_->setKeyValueAt(0.75, 1.0);   // hold
+    highlightAnim_->setEndValue(0.0);           // fade out
+    highlightAnim_->setEasingCurve(QEasingCurve::OutCubic);
+    highlightAnim_->start();
+    update();
 }
 
 void InstanceRow::enterEvent(QEnterEvent*) {
@@ -172,15 +206,21 @@ void InstanceRow::paintEvent(QPaintEvent*) {
         p.fillPath(panel, hover);
     }
 
-    // Left accent stripe that brightens with hover.
-    {
-        QRectF stripe = rect;
-        stripe.setRight(stripe.left() + 3);
-        QColor stripeCol(85, 135, 235,
-            int(60 + 160 * hoverIntensity_) * (panelAlpha < 0.999 ? panelAlpha : 1.0));
-        QPainterPath sp;
-        sp.addRoundedRect(stripe, 2.0, 2.0);
-        p.fillPath(sp, stripeCol);
+    // Yellow ring indicator drawn last (on top of hover/entrance): a bright
+    // rounded-rect outline that flashes in/out. Chooses a hue that cannot be
+    // confused with the blue hover tint or the base palette.
+    if (highlight_ > 0.001) {
+        QRectF hr = rect;
+        // Ring sits just outside the panel border.
+        const qreal out = 2.0 * highlight_;
+        hr.adjust(-1.0, -1.0, 1.0, 1.0);
+        QColor hl(248, 194, 52, int(255 * highlight_));
+        QPen hp(hl, 2.0);
+        hp.setCapStyle(Qt::RoundCap);
+        hp.setJoinStyle(Qt::RoundJoin);
+        p.setPen(hp);
+        p.setBrush(Qt::NoBrush);
+        p.drawRoundedRect(hr, kCornerRadius + 1, kCornerRadius + 1);
     }
 
     // Outline that brightens with hover.

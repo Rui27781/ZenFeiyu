@@ -131,16 +131,14 @@ void SplashScreen::paintEvent(QPaintEvent*) {
 
     // Wordmark: drawn via a transform so we can scale around the centre.
     {
-        QFont logoFont;
-        logoFont.setFamilies({QStringLiteral("Microsoft YaHei"),
-                              QStringLiteral("Segoe UI")});
+        QFont logoFont(QStringLiteral("Segoe UI"));
         logoFont.setPointSize(40);
         logoFont.setBold(true);
         logoFont.setLetterSpacing(QFont::PercentageSpacing, 102.0);
         p.setFont(logoFont);
 
         QFontMetricsF fm(logoFont);
-        const QString text = QStringLiteral("大肥鱼");
+        const QString text = QStringLiteral("OpenZen");
         const qreal textW = fm.horizontalAdvance(text);
         const qreal textH = fm.ascent();
         QPointF anchor = rect.center();

@@ -1,5 +1,7 @@
 #include "manual_map.h"
 
+#include "loader_settings.h"
+
 #include <psapi.h>
 #include <tlhelp32.h>
 

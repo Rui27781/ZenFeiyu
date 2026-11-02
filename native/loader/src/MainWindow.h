@@ -4,13 +4,19 @@
 #include <QSet>
 #include <QString>
 
+#include "InstanceList.h"   // struct Instance, used by maybeAutoInject()
+#include "loader.h"         // struct JavaProcess, same
+
 class QLabel;
+class QSystemTrayIcon;
 class QTimer;
 
 namespace loader {
 
 class TitleBar;
 class InstanceList;
+class Sidebar;
+class SettingsPage;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -28,7 +34,7 @@ public:
 
 private slots:
     void refreshNow();
-    void onInjectRequested(unsigned long pid, const QString& title);
+    void onInjectRequested(unsigned long pid, const QString& title, const QString& commandLine);
 
 protected:
     void paintEvent(QPaintEvent*) override;
@@ -40,15 +46,32 @@ private:
     void styleApp();
     void enableWin11RoundedCorners();
 
-    TitleBar*     titleBar_ = nullptr;
-    InstanceList* list_     = nullptr;
-    QTimer*       timer_    = nullptr;
-    QLabel*       status_   = nullptr;
-    QLabel*       hint_     = nullptr;
+    // Native Bypass auto-injection: fires for a Minecraft java process the loader
+    // has not handled yet. Deliberately driven off the raw java process list and
+    // its command line, NOT off the windowed instance list: the window only shows
+    // up after Forge/mod loading, which is far too late to be "early". Pids we
+    // created ourselves (and the ones already handled) are remembered so a
+    // restart cannot feed itself back into another restart.
+    void maybeAutoInject(const std::vector<JavaProcess>& procs);
+
+    // Tray balloon for the injection result. The overlay only lives a couple of
+    // seconds, so without this the outcome is easy to miss - which is exactly
+    // how "I never saw Native Bypass do anything" happens.
+    void notify(const QString& title, const QString& body);
+
+    TitleBar*        titleBar_ = nullptr;
+    InstanceList*    list_     = nullptr;
+    Sidebar*         sidebar_  = nullptr;
+    SettingsPage*    settingsPage_ = nullptr;
+    QTimer*          timer_    = nullptr;
+    QLabel*          status_   = nullptr;
+    QLabel*          hint_     = nullptr;
 
     bool entrancePlayed_    = false;
     bool injectionInFlight_ = false;
     bool exiting_           = false;
+    QSet<unsigned long> earlyHandled_;
+    QSystemTrayIcon* tray_ = nullptr;
 };
 
 } // namespace loader

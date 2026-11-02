@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QHash>
+#include <QSet>
 #include <QString>
 #include <QVector>
 #include <QWidget>
@@ -14,6 +15,7 @@ namespace loader {
 struct Instance {
     unsigned long pid;
     QString title;
+    QString commandLine;   // full command line (from JavaProcess), used by Native Bypass to relaunch
 };
 
 class InstanceRow;
@@ -34,12 +36,26 @@ public:
 
     int count() const { return rows_.size(); }
 
+    // True if a row already exists for this pid.
+    bool containsPid(unsigned long pid) const { return rows_.contains(pid); }
+
+    // Return the instance entry backing the row for pid; zero pid if missing.
+    Instance instanceForPid(unsigned long pid) const;
+
     // Disables inject buttons across all rows (used while an injection is
     // already in progress so the user can't queue a second one).
     void setInteractive(bool on);
 
+    // Visual ping on the row for the given pid: draws a yellow outline ring
+    // that fades out.
+    void markInjected(unsigned long pid);
+
+    // Tag the row with the green Native Bypass badge. Remembered per pid so the
+    // badge survives the list rebuild that happens once per second.
+    void markNativeBypassed(unsigned long pid);
+
 signals:
-    void injectRequested(unsigned long pid, const QString& title);
+    void injectRequested(unsigned long pid, const QString& title, const QString& commandLine);
 
 private:
     void updateEmptyState();
@@ -47,9 +63,13 @@ private:
     QScrollArea* scroll_           = nullptr;
     QWidget*     container_        = nullptr;
     QVBoxLayout* containerLayout_  = nullptr;
+    QLabel*      note_             = nullptr;
     QLabel*      emptyLabel_       = nullptr;
 
     QHash<unsigned long, InstanceRow*> rows_;
+    // Pids Native Bypass has taken over, so the badge is re-applied whenever the
+    // row is rebuilt (rows are recreated on refresh).
+    QSet<unsigned long> nativeBypassed_;
     bool interactive_ = true;
 };
 

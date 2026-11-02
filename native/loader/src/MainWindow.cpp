@@ -2,11 +2,19 @@
 
 #include "InjectionOverlay.h"
 #include "InstanceList.h"
+#include "SettingsPage.h"
+#include "Sidebar.h"
 #include "TitleBar.h"
 #include "loader.h"
+#include "loader_settings.h"
+
+#include <algorithm>
+#include <cwctype>
 
 #include <QApplication>
 #include <QCloseEvent>
+#include <QSystemTrayIcon>
+#include <QStyle>
 #include <QEasingCurve>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -104,10 +112,10 @@ MainWindow::MainWindow(QWidget* parent)
 
 void MainWindow::buildUi() {
 #ifdef OPENZEN_BUILD_REVISION
-    const QString displayTitle = QStringLiteral("OpenZenFeiyu Loader  ·  build %1")
+    const QString displayTitle = QStringLiteral("OpenZen Loader  ·  build %1")
             .arg(QString::fromLatin1(OPENZEN_BUILD_REVISION).left(7));
 #else
-    const QString displayTitle = QStringLiteral("OpenZenFeiyu Loader");
+    const QString displayTitle = QStringLiteral("OpenZen Loader");
 #endif
     // The OS-level window title (what GetWindowTextW and window scanners read) is
     // randomised on every launch so it can't be matched against a fixed string.
@@ -125,36 +133,49 @@ void MainWindow::buildUi() {
     titleBar_->setTitleText(displayTitle);
     root->addWidget(titleBar_);
 
+    // Flat DeepSeek-style: the sidebar is a fixed-width column; the Inject
+    // view (InstanceList) is a DIRECT child of this central widget - exactly
+    // like the proven-stable original, never wrapped in any intermediate
+    // container (wrapping it in a shell/dock/stack caused a vtable UAF:
+    // exe+0x245cd5 / 0x246655 / 0x246635). The Settings page is a sibling
+    // overlay child that is shown/hidden via setVisible.
     auto* body = new QWidget(central);
     body->setObjectName("body");
-    body->setAttribute(Qt::WA_StyledBackground, false);
-    auto* layout = new QVBoxLayout(body);
-    layout->setContentsMargins(18, 14, 18, 14);
-    layout->setSpacing(10);
+    auto* bodyLayout = new QHBoxLayout(body);
+    bodyLayout->setContentsMargins(0, 0, 0, 0);
+    bodyLayout->setSpacing(0);
 
-    auto* title = new QLabel(QStringLiteral("Minecraft Instances"), body);
-    title->setObjectName("title");
-
-    hint_ = new QLabel(
-        QStringLiteral("Click Inject on the instance you want to load OpenZenFeiyu into. "
-                       "List refreshes every second."),
-        body);
-    hint_->setObjectName("hint");
-    hint_->setWordWrap(true);
+    sidebar_ = new Sidebar(body);
+    bodyLayout->addWidget(sidebar_);
 
     list_ = new InstanceList(body);
     connect(list_, &InstanceList::injectRequested,
             this, &MainWindow::onInjectRequested);
+    bodyLayout->addWidget(list_, 1);
 
-    status_ = new QLabel(QStringLiteral("Watching for Minecraft processes…"), body);
-    status_->setObjectName("status");
-    status_->setWordWrap(true);
+    settingsPage_ = new SettingsPage(body);
+    settingsPage_->setVisible(false);
+    bodyLayout->addWidget(settingsPage_, 1);
 
-    layout->addWidget(title);
-    layout->addWidget(hint_);
-    layout->addWidget(list_, 1);
-    layout->addWidget(status_);
+    connect(sidebar_, &Sidebar::injectClicked, this, [this] {
+        list_->setVisible(true);
+        settingsPage_->setVisible(false);
+    });
+    connect(sidebar_, &Sidebar::settingsClicked, this, [this] {
+        list_->setVisible(false);
+        settingsPage_->setVisible(true);
+    });
+
     root->addWidget(body, 1);
+
+    auto* statusRow = new QWidget(central);
+    auto* statusRowLayout = new QHBoxLayout(statusRow);
+    statusRowLayout->setContentsMargins(10, 0, 10, 10);
+    status_ = new QLabel(statusRow);
+    status_->setObjectName("status");
+    statusRowLayout->addWidget(status_);
+    statusRowLayout->addStretch(1);
+    root->addWidget(statusRow);
 
     setCentralWidget(central);
 }
@@ -263,6 +284,36 @@ void MainWindow::playEntrance() {
     grp->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
+namespace {
+
+// The window is not up yet when we want to act, so the command line is the only
+// signal available. It is set at process creation, which is exactly why the
+// trigger can fire seconds after java.exe starts instead of after the game has
+// finished loading its mods.
+bool looks_like_minecraft(const std::wstring& command_line) {
+    if (command_line.empty()) return false;
+    std::wstring lower(command_line);
+    std::transform(lower.begin(), lower.end(), lower.begin(),
+                   [](wchar_t c) { return (wchar_t)std::towlower(c); });
+    // --gameDir / --assetIndex are the vanilla launcher's own arguments and are
+    // what NetEase-style launchers pass through too; the main class checks cover
+    // launches that were built by hand.
+    return lower.find(L"--gamedir") != std::wstring::npos
+        || lower.find(L"--assetindex") != std::wstring::npos
+        || lower.find(L"net.minecraft.client.main.main") != std::wstring::npos
+        || lower.find(L"minecraft") != std::wstring::npos;
+}
+
+// A Minecraft java process. The command line is the early signal; the window is
+// the fallback for when the PEB read is refused (a protected game process), which
+// is late but still better than never injecting.
+bool is_minecraft_process(const JavaProcess& jp) {
+    return looks_like_minecraft(jp.command_line)
+        || isMinecraft(jp.window_title, jp.window_class);
+}
+
+} // namespace
+
 void MainWindow::refreshNow() {
     auto procs = list_java_processes();
     QVector<Instance> filtered;
@@ -272,6 +323,7 @@ void MainWindow::refreshNow() {
         Instance item;
         item.pid = jp.pid;
         item.title = fromW(jp.window_title);
+        item.commandLine = fromW(jp.command_line);
         if (item.title.isEmpty()) {
             item.title = QStringLiteral("(starting up — %1)")
                     .arg(fromW(jp.window_class));
@@ -280,11 +332,69 @@ void MainWindow::refreshNow() {
     }
 
     list_->setInstances(filtered);
-    status_->setText(QStringLiteral("Watching %1 Minecraft instance(s).")
-                     .arg(list_->count()));
+
+    // Native Bypass triggers off the raw java list, not the windowed one, so say
+    // what it currently sees: "no java process at all" and "a java process that
+    // does not look like Minecraft" are different failures and the loader hid
+    // both of them behind the same one-line status.
+    if (loader_settings::is_native_bypass_enabled()) {
+        int matching = 0;
+        for (const auto& jp : procs) {
+            if (is_minecraft_process(jp)) ++matching;
+        }
+        status_->setText(QStringLiteral(
+                "Native Bypass — %1 java process(es) seen, %2 recognised.")
+                .arg((int)procs.size()).arg(matching));
+    } else {
+        status_->setText(QStringLiteral("Watching %1 Minecraft instance(s).")
+                         .arg(list_->count()));
+    }
+
+    maybeAutoInject(procs);
 }
 
-void MainWindow::onInjectRequested(unsigned long pid, const QString& title) {
+void MainWindow::maybeAutoInject(const std::vector<JavaProcess>& procs) {
+    // Native Bypass is an auto path: the user launches the game normally and the
+    // loader takes the instance over itself, because being "early" means we have
+    // to be the one that starts the process (CREATE_SUSPENDED). Nothing happens
+    // while the toggle is off.
+    if (!loader_settings::is_native_bypass_enabled()) return;
+    if (injectionInFlight_) return;
+
+    for (const JavaProcess& jp : procs) {
+        // Skip what we already dealt with, and skip the pid our own relaunch
+        // produced - otherwise the restart would queue another restart forever.
+        if (earlyHandled_.contains(jp.pid)) continue;
+        if (!is_minecraft_process(jp)) continue;
+        earlyHandled_.insert(jp.pid);
+        QString title = fromW(jp.window_title);
+        if (title.isEmpty()) {
+            title = QStringLiteral("Minecraft (starting up)");
+        }
+        onInjectRequested(jp.pid, title, fromW(jp.command_line));
+        return;                                     // one instance at a time
+    }
+}
+
+void MainWindow::notify(const QString& title, const QString& body) {
+    if (!tray_) {
+        tray_ = new QSystemTrayIcon(this);
+        QIcon icon = qApp->windowIcon();
+        if (icon.isNull()) {
+            icon = style()->standardIcon(QStyle::SP_ComputerIcon);
+        }
+        tray_->setIcon(icon);
+        tray_->show();
+    }
+    tray_->showMessage(title, body, QSystemTrayIcon::Information, 5000);
+}
+
+void MainWindow::onInjectRequested(unsigned long pid, const QString& title,
+                                   const QString& commandLine) {
+    // Signal re-entrancy guard: the Native Bypass auto-detection fires on every
+    // newly-seen Minecraft pid. When auto-inject is already in progress
+    // (injectionInFlight_), drop the new candidate instead of starting a
+    // second overlay / worker thread.
     if (injectionInFlight_) return;
     injectionInFlight_ = true;
 
@@ -293,9 +403,46 @@ void MainWindow::onInjectRequested(unsigned long pid, const QString& title) {
     list_->setInteractive(false);
     if (timer_) timer_->stop();
 
-    auto* overlay = new InjectionOverlay(pid, title, this);
+    const bool nativeBypass = loader_settings::is_native_bypass_enabled();
+    auto* overlay = new InjectionOverlay(pid, title, commandLine, this);
     connect(overlay, &InjectionOverlay::completed, this,
-            [this](bool /*ok*/) { playExitThenQuit(); });
+            [this, nativeBypass](bool ok, unsigned long injectedPid) {
+        // Ping the injected row so the user sees which pid got the DLL.
+        // The 1.4s yellow ring needs a few frames; hold the window briefly
+        // (3000ms) before fading out so it is actually visible, then leave.
+        if (ok && injectedPid) list_->markInjected(injectedPid);
+        // Remember the pid we just stood up (native bypass hands back the new one)
+        // so the auto path does not pick it up as a fresh candidate.
+        if (injectedPid) earlyHandled_.insert(injectedPid);
+        if (ok && injectedPid && nativeBypass) {
+            // Green tag on the row + a balloon, so Native Bypass leaving a trace is
+            // not something you have to catch in a 2s animation.
+            list_->markNativeBypassed(injectedPid);
+            notify(QStringLiteral("OpenZen"),
+                   QStringLiteral("Native Bypass injected (pid %1, mapped in before the game window)")
+                       .arg(injectedPid));
+        } else if (ok && injectedPid) {
+            notify(QStringLiteral("OpenZen"),
+                   QStringLiteral("Injected into pid %1").arg(injectedPid));
+        } else {
+            notify(QStringLiteral("OpenZen"),
+                   QStringLiteral("Injection failed"));
+        }
+        if (nativeBypass) {
+            // Native Bypass keeps watching instead of quitting: the instance we just
+            // restarted only reappears in the list a few seconds later, and that
+            // row (with its green tag) is the whole point of the feedback. It
+            // also means a later launch gets taken over without restarting the
+            // loader by hand.
+            injectionInFlight_ = false;
+            list_->setInteractive(true);
+            if (timer_) timer_->start();
+            return;
+        }
+        QTimer::singleShot(1200, this, [this]() {
+            playExitThenQuit();
+        });
+    });
     overlay->start();
 }
 
