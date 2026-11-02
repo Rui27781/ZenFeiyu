@@ -9,7 +9,6 @@ import net.minecraft.util.Mth;
 import shit.zen.ClientBase;
 import shit.zen.event.impl.Render2DEvent;
 import shit.zen.render.Paint;
-import shit.zen.render.Rectangle;
 import shit.zen.render.Renderer;
 import shit.zen.render.RoundedRectangle;
 import shit.zen.utils.animation.SpringAnimation;
@@ -41,7 +40,7 @@ public class DynamicIsland {
     private final long lastFrameTime = 0L;
     private long lastFrameTimestamp = 0L;
 
-    public void onRender2D(Render2DEvent render2DEvent) {
+    public void onRender2D(Render2DEvent render2DEvent, float backgroundBlur) {
         float islandY;
         float outgoingY;
         IHudElement.Size size;
@@ -101,19 +100,19 @@ public class DynamicIsland {
         if (this.activeElement.hasBackground()) {
             PoseStack poseStack = render2DEvent.poseStack();
             poseStack.pushPose();
-            RenderUtil.drawBlurredRect(poseStack, islandX, finalY, islandWidth, islandHeight, finalCornerRadius, 16.0f, 0.9f, 0);
+            RenderUtil.drawBlurredRect(poseStack, islandX, finalY, islandWidth, islandHeight, finalCornerRadius, Math.max(0.0f, backgroundBlur), 0.9f, 0);
             poseStack.popPose();
             Renderer.renderConsumer((drawContext -> {
                 RoundedRectangle panel = RoundedRectangle.ofXYWHR(islandX, finalY, islandWidth, islandHeight, finalCornerRadius);
-                // Soft white sheen fading from the top edge.
-                drawContext.save();
-                drawContext.clipRoundedRect(panel, true);
+                // Soft white sheen fading from the top edge. Drawn as a rounded
+                // rect instead of a scissor-clipped rectangle: the scissor is
+                // rectangular, so the clipped version left square corners
+                // sticking out beyond the pill's radius.
                 try (Paint sheen = new Paint()){
-                    sheen.setGradCoords(new Paint.GradientCoords(islandX, finalY, islandX, finalY + islandHeight * 0.7f,
+                    sheen.setGradCoords(new Paint.GradientCoords(islandX, finalY, islandX, finalY + islandHeight,
                             new Color(255, 255, 255, 46).getRGB(), new Color(255, 255, 255, 0).getRGB()));
-                    drawContext.drawRect(Rectangle.ofXYWH(islandX, finalY, islandWidth, islandHeight * 0.7f), sheen);
+                    drawContext.drawRoundedRect(panel, sheen);
                 }
-                drawContext.restore();
                 // Hairline rim to sell the glass edge.
                 try (Paint rim = new Paint()){
                     rim.setColor(new Color(255, 255, 255, 60).getRGB());
