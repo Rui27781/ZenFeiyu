@@ -35,7 +35,7 @@ DWORD WINAPI inject_thread(LPVOID) {
     using namespace openzen;
 
     log::init();
-    log::info("OpenZen.dll bootstrap thread started, pid=%lu", GetCurrentProcessId());
+    log::info("ZenFeiyu.dll bootstrap thread started, pid=%lu", GetCurrentProcessId());
 
     // HWID spoof (IAT-level) is installed as early as possible, before the
     // JVM attaches - so any later registry reads from Minecraft/Forge see the
@@ -73,7 +73,7 @@ DWORD WINAPI inject_thread(LPVOID) {
     JNIEnv* env = nullptr;
     JavaVMAttachArgs args{};
     args.version = JNI_VERSION_1_8;
-    args.name = const_cast<char*>("OpenZen-Bootstrap");
+    args.name = const_cast<char*>("ZenFeiyu-Bootstrap");
     args.group = nullptr;
     if (vm->AttachCurrentThreadAsDaemon((void**)&env, &args) != JNI_OK || !env) {
         log::error("AttachCurrentThreadAsDaemon failed");

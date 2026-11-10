@@ -22,7 +22,7 @@ inline QString kKeyMac()         { return QStringLiteral("hwid.mac"); }
 inline QString kKeyComputerName(){ return QStringLiteral("hwid.computerName"); }
 inline QString kKeyProductId()   { return QStringLiteral("hwid.productId"); }
 
-// Path of the settings file. Windows: %APPDATA%\OpenZen\settings.json
+// Path of the settings file. Windows: %APPDATA%\ZenFeiyu\settings.json
 // (load_data_at_startup). Returns empty on failure.
 std::string settings_path();
 

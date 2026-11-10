@@ -76,7 +76,7 @@ bool extract_embedded(std::wstring& out_path) {
     }
 
     wchar_t path[MAX_PATH];
-    std::swprintf(path, MAX_PATH, L"%sopenzen-%lu.jar", tmp, GetCurrentProcessId());
+    std::swprintf(path, MAX_PATH, L"%szenfeiyu-%lu.jar", tmp, GetCurrentProcessId());
 
     HANDLE file = CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
                                FILE_ATTRIBUTE_NORMAL, nullptr);

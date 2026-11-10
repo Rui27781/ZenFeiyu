@@ -19,8 +19,8 @@ int main(int argc, char** argv) {
         loader::dbg::installAutoQuit(&app);
     }
     QApplication::setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
-    QApplication::setApplicationName(QStringLiteral("OpenZen Loader"));
-    QApplication::setOrganizationName(QStringLiteral("OpenZen"));
+    QApplication::setApplicationName(QStringLiteral("ZenFeiyu"));
+    QApplication::setOrganizationName(QStringLiteral("ZenFeiyu"));
 
     // Main window is constructed up front but kept hidden until the splash
     // emits finished(), so its windowOpacity starts at 0 (set in showEvent

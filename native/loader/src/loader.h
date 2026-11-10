@@ -31,13 +31,13 @@ std::wstring read_working_directory(HANDLE process);
 // be read or does not validate.
 std::vector<wchar_t> read_environment_block(HANDLE process);
 
-// Map the embedded OpenZen.dll directly into the target process and run its
+// Map the embedded ZenFeiyu.dll directly into the target process and run its
 // DllMain via shellcode. The DLL bytes never touch disk. Returns an empty
 // string on success or a human-readable error message.
 std::wstring inject(DWORD pid);
 
 // Return a pointer into the loader EXE's resource section that holds the
-// embedded OpenZen.dll along with its byte size. The pointer remains valid
+// embedded ZenFeiyu.dll along with its byte size. The pointer remains valid
 // for the lifetime of the loader process.
 bool get_embedded_dll(const void*& out_data, size_t& out_size);
 

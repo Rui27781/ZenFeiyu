@@ -33,7 +33,7 @@ version = mod_version
 group = mod_group_id
 
 base {
-    archivesName = mod_id
+    archivesName = 'ZenFeiyu'
 }
 
 // Mojang ships Java 17 to end users in 1.18+, so your mod should target Java 17.
@@ -457,8 +457,8 @@ tasks.withType(JavaCompile).configureEach {
 // ===== Native build (DLL injection path) =====
 //
 // Produces:
-//   build/dist/OpenZen.dll        - injectable DLL with embedded zen.jar
-//   build/dist/OpenZenLoader.exe  - GUI injector
+//   build/dist/ZenFeiyu.dll        - injectable DLL with embedded zen.jar
+//   build/dist/ZenFeiyu.exe        - GUI injector
 //
 // Requires:
 //   - JAVA_HOME pointing at a JDK 17 install (for jni.h / jvmti.h)
@@ -621,7 +621,7 @@ tasks.register('configureNative', Exec) {
 
 tasks.register('buildNative', Exec) {
     group = 'openzen'
-    description = 'Compile OpenZen.dll and OpenZenLoader.exe with CMake.'
+    description = 'Compile ZenFeiyu.dll and ZenFeiyu.exe with CMake.'
     dependsOn 'configureNative'
     workingDir nativeDir
     commandLine 'cmake', '--build', 'build', '--config', 'Release'
@@ -643,7 +643,7 @@ tasks.register('buildNative', Exec) {
 tasks.register('packageDist') {
     group = 'openzen'
     description = 'Collect the Loader EXE into build/dist for distribution. ' +
-                  'OpenZen.dll is embedded inside the EXE, so we only ship one file.'
+                  'ZenFeiyu.dll is embedded inside the EXE, so we only ship one file.'
     dependsOn 'buildNative'
     // Use an inline copy { } block inside doLast rather than the Copy task
     // type. Copy snapshots its source set at configuration time and reports
@@ -651,10 +651,10 @@ tasks.register('packageDist') {
     // about to produce does not exist yet. doLast runs after buildNative,
     // by which point the file is definitely on disk.
     doLast {
-        def src = file("$nativeBuildDir/loader/Release/OpenZenLoader.exe")
+        def src = file("$nativeBuildDir/loader/Release/ZenFeiyu.exe")
         if (!src.isFile()) {
             throw new GradleException(
-                "Expected OpenZenLoader.exe at ${src} after buildNative; missing")
+                "Expected ZenFeiyu.exe at ${src} after buildNative; missing")
         }
         copy {
             from src
@@ -680,12 +680,12 @@ ext.findUpx = {
 
 tasks.register('upxCompress') {
     group = 'openzen'
-    description = 'Run UPX --best --lzma on the packaged OpenZenLoader.exe. ' +
+    description = 'Run UPX --best --lzma on the packaged ZenFeiyu.exe. ' +
                   'No-op (warning only) when upx is not on PATH so local builds ' +
                   'do not need it installed.'
     dependsOn 'packageDist'
     doLast {
-        def exe = file("$buildDir/dist/OpenZenLoader.exe")
+        def exe = file("$buildDir/dist/ZenFeiyu.exe")
         if (!exe.isFile()) {
             throw new GradleException("packageDist did not produce ${exe}")
         }

@@ -75,7 +75,7 @@ std::wstring inject_early(DWORD existing_pid, const std::wstring& command_line,
     const void* dll_data = nullptr;
     size_t dll_size = 0;
     if (!get_embedded_dll(dll_data, dll_size)) {
-        return L"Embedded OpenZen.dll resource not found in loader EXE";
+        return L"Embedded ZenFeiyu.dll resource not found in loader EXE";
     }
 
     // CreateProcessW may write into the command line buffer, so hand it a copy.

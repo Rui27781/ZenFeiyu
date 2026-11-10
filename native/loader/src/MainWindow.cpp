@@ -111,12 +111,9 @@ MainWindow::MainWindow(QWidget* parent)
 }
 
 void MainWindow::buildUi() {
-#ifdef OPENZEN_BUILD_REVISION
-    const QString displayTitle = QStringLiteral("OpenZen Loader  ·  build %1")
-            .arg(QString::fromLatin1(OPENZEN_BUILD_REVISION).left(7));
-#else
-    const QString displayTitle = QStringLiteral("OpenZen Loader");
-#endif
+    // Rebranded distribution: the visible title carries the product name and
+    // the attribution line instead of the build revision.
+    const QString displayTitle = QStringLiteral("ZenFeiyu  ·  二改自bili@Rui");
     // The OS-level window title (what GetWindowTextW and window scanners read) is
     // randomised on every launch so it can't be matched against a fixed string.
     // The visible custom title bar below still shows the branded name.
@@ -418,14 +415,14 @@ void MainWindow::onInjectRequested(unsigned long pid, const QString& title,
             // Green tag on the row + a balloon, so Native Bypass leaving a trace is
             // not something you have to catch in a 2s animation.
             list_->markNativeBypassed(injectedPid);
-            notify(QStringLiteral("OpenZen"),
+            notify(QStringLiteral("ZenFeiyu"),
                    QStringLiteral("Native Bypass injected (pid %1, mapped in before the game window)")
                        .arg(injectedPid));
         } else if (ok && injectedPid) {
-            notify(QStringLiteral("OpenZen"),
+            notify(QStringLiteral("ZenFeiyu"),
                    QStringLiteral("Injected into pid %1").arg(injectedPid));
         } else {
-            notify(QStringLiteral("OpenZen"),
+            notify(QStringLiteral("ZenFeiyu"),
                    QStringLiteral("Injection failed"));
         }
         if (nativeBypass) {

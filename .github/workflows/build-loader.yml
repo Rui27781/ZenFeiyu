@@ -167,11 +167,11 @@ jobs:
         shell: pwsh
         run: |
           $sha = "${{ steps.rev.outputs.sha }}"
-          $exeSrc = "build\dist\OpenZenLoader.exe"
-          $jarSrc = "build\libs\hey-1.0.jar"
+          $exeSrc = "build\dist\ZenFeiyu.exe"
+          $jarSrc = "build\libs\ZenFeiyu-1.0.jar"
           # Standalone injectable DLL (also embedded inside the loader EXE). Useful
           # for users who inject through their own injector instead of the GUI.
-          $dllSrc = "native\build\dll\Release\OpenZen.dll"
+          $dllSrc = "native\build\dll\Release\ZenFeiyu.dll"
           # The class-name obfuscator emits a fresh, random old->new mapping on every
           # build; rename-mapping.txt is the ONLY way to de-obfuscate a stack trace, so
           # ship it with the artifacts/release.
@@ -183,10 +183,10 @@ jobs:
 
           $release = "build\release"
           New-Item -ItemType Directory -Force -Path $release | Out-Null
-          $exeDst = Join-Path $release "OpenZenLoader-$sha.exe"
-          $jarDst = Join-Path $release "OpenZen-$sha.jar"
-          $dllDst = Join-Path $release "OpenZen-$sha.dll"
-          $mapDst = Join-Path $release "OpenZen-$sha-mapping.txt"
+          $exeDst = Join-Path $release "ZenFeiyu-$sha.exe"
+          $jarDst = Join-Path $release "ZenFeiyu-$sha.jar"
+          $dllDst = Join-Path $release "ZenFeiyu-$sha.dll"
+          $mapDst = Join-Path $release "ZenFeiyu-$sha-mapping.txt"
           Copy-Item -Force $exeSrc $exeDst
           Copy-Item -Force $jarSrc $jarDst
           Copy-Item -Force $dllSrc $dllDst
@@ -195,46 +195,46 @@ jobs:
           $exeSz = (Get-Item $exeDst).Length
           $jarSz = (Get-Item $jarDst).Length
           $dllSz = (Get-Item $dllDst).Length
-          Write-Host ("OpenZenLoader-{0}.exe : {1:N0} bytes ({2:N2} MB)" -f $sha, $exeSz, ($exeSz/1MB))
-          Write-Host ("OpenZen-{0}.jar       : {1:N0} bytes ({2:N2} MB)" -f $sha, $jarSz, ($jarSz/1MB))
-          Write-Host ("OpenZen-{0}.dll       : {1:N0} bytes ({2:N2} MB)" -f $sha, $dllSz, ($dllSz/1MB))
-          Write-Host ("OpenZen-{0}-mapping.txt : {1:N0} bytes" -f $sha, (Get-Item $mapDst).Length)
+          Write-Host ("ZenFeiyu-{0}.exe : {1:N0} bytes ({2:N2} MB)" -f $sha, $exeSz, ($exeSz/1MB))
+          Write-Host ("ZenFeiyu-{0}.jar : {1:N0} bytes ({2:N2} MB)" -f $sha, $jarSz, ($jarSz/1MB))
+          Write-Host ("ZenFeiyu-{0}.dll : {1:N0} bytes ({2:N2} MB)" -f $sha, $dllSz, ($dllSz/1MB))
+          Write-Host ("ZenFeiyu-{0}-mapping.txt : {1:N0} bytes" -f $sha, (Get-Item $mapDst).Length)
 
       # NOTE: actions/upload-artifact always wraps its content in a zip; that
       # is a platform limitation we cannot disable. By giving each artifact a
       # single file whose name already encodes the sha, the download is
-      # OpenZenLoader-<sha>.exe.zip / OpenZen-<sha>.jar.zip, each containing
+      # ZenFeiyu-<sha>.exe.zip / ZenFeiyu-<sha>.jar.zip, each containing
       # just the named file (no nested directory). For raw exe/jar downloads
       # without the zip wrapper, attach to a GitHub Release instead.
-      - name: Upload OpenZenLoader exe
+      - name: Upload ZenFeiyu exe
         uses: actions/upload-artifact@v4
         with:
-          name: OpenZenLoader-${{ steps.rev.outputs.sha }}.exe
-          path: build/release/OpenZenLoader-${{ steps.rev.outputs.sha }}.exe
+          name: ZenFeiyu-${{ steps.rev.outputs.sha }}.exe
+          path: build/release/ZenFeiyu-${{ steps.rev.outputs.sha }}.exe
           if-no-files-found: error
           retention-days: 30
 
-      - name: Upload OpenZen jar
+      - name: Upload ZenFeiyu jar
         uses: actions/upload-artifact@v4
         with:
-          name: OpenZen-${{ steps.rev.outputs.sha }}.jar
-          path: build/release/OpenZen-${{ steps.rev.outputs.sha }}.jar
+          name: ZenFeiyu-${{ steps.rev.outputs.sha }}.jar
+          path: build/release/ZenFeiyu-${{ steps.rev.outputs.sha }}.jar
           if-no-files-found: error
           retention-days: 30
 
-      - name: Upload OpenZen dll
+      - name: Upload ZenFeiyu dll
         uses: actions/upload-artifact@v4
         with:
-          name: OpenZen-${{ steps.rev.outputs.sha }}.dll
-          path: build/release/OpenZen-${{ steps.rev.outputs.sha }}.dll
+          name: ZenFeiyu-${{ steps.rev.outputs.sha }}.dll
+          path: build/release/ZenFeiyu-${{ steps.rev.outputs.sha }}.dll
           if-no-files-found: error
           retention-days: 30
 
       - name: Upload de-obfuscation mapping
         uses: actions/upload-artifact@v4
         with:
-          name: OpenZen-${{ steps.rev.outputs.sha }}-mapping.txt
-          path: build/release/OpenZen-${{ steps.rev.outputs.sha }}-mapping.txt
+          name: ZenFeiyu-${{ steps.rev.outputs.sha }}-mapping.txt
+          path: build/release/ZenFeiyu-${{ steps.rev.outputs.sha }}-mapping.txt
           if-no-files-found: error
           retention-days: 30
 
@@ -277,13 +277,13 @@ jobs:
           $warn = @(
             '> ⚠️ **这是预构建版本（PRE-BUILT）**'
             '>'
-            '> 本 Release 里的 `OpenZenLoader.exe` / `OpenZen-*.jar` 是 GitHub Actions 编译的成品，**所有人下载到的是同一套混淆类名**。这套固定的名字随时可能被反作弊（如布吉岛）收录进**类名黑名单**而失效。'
+            '> 本 Release 里的 `ZenFeiyu.exe` / `ZenFeiyu-*.jar` 是 GitHub Actions 编译的成品，**所有人下载到的是同一套混淆类名**。这套固定的名字随时可能被反作弊（如布吉岛）收录进**类名黑名单**而失效。'
             '>'
             '> 想要一套**独一无二、别人都不知道**的类名，请**自己编译**（每次构建都会生成全新随机类名）：'
             '> - **Fork 本仓库**，在你自己的 GitHub Actions 里跑 `Build Loader` 工作流，下载你自己的 artifact；**或**'
             '> - **clone 到本地**自己 `gradlew jar` / `gradlew dll`。'
             '>'
-            '> 详见仓库 README 的「编译时类名混淆」。`OpenZen-*-mapping.txt` 是本次构建的反混淆映射（每次构建都不同）。'
+            '> 详见仓库 README 的「编译时类名混淆」。`ZenFeiyu-*-mapping.txt` 是本次构建的反混淆映射（每次构建都不同）。'
             ''
             '---'
             ''
@@ -293,7 +293,7 @@ jobs:
           gh release create $tag `
               --title $title `
               --notes-file $notes `
-              "build/release/OpenZenLoader-$env:SHA.exe" `
-              "build/release/OpenZen-$env:SHA.dll" `
-              "build/release/OpenZen-$env:SHA.jar" `
-              "build/release/OpenZen-$env:SHA-mapping.txt"
+              "build/release/ZenFeiyu-$env:SHA.exe" `
+              "build/release/ZenFeiyu-$env:SHA.dll" `
+              "build/release/ZenFeiyu-$env:SHA.jar" `
+              "build/release/ZenFeiyu-$env:SHA-mapping.txt"

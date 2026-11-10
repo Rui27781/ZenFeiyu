@@ -47,7 +47,7 @@ private:
     unsigned long pid_;
     QString       target_;
     QString       commandLine_;
-    QString       statusText_       = QStringLiteral("Injecting OpenZen…");
+    QString       statusText_       = QStringLiteral("Injecting ZenFeiyu…");
 
     qreal spinnerAngle_      = 0.0;
     qreal progress_          = 0.0;

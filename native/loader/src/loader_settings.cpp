@@ -18,7 +18,7 @@ namespace {
 
 QHash<QString, QVariant> g_cache;
 
-// Compute %APPDATA%\OpenZen\settings.json (respects FOLDERID_RoamingAppData
+// Compute %APPDATA%\ZenFeiyu\settings.json (respects FOLDERID_RoamingAppData
 // via SHGetKnownFolderPath - not the legacy CSIDL fallback so it works in
 // non-roaming scenarios too).
 QString settings_file() {
@@ -31,9 +31,17 @@ QString settings_file() {
         CoTaskMemFree(raw);
         if (base.isEmpty()) return QString();
         QDir d(base);
-        if (!d.mkpath(QStringLiteral("OpenZen"))) return QString();
-        return d.filePath(QStringLiteral("OpenZen")) +
-               QStringLiteral("/settings.json");
+        const QString legacy = d.filePath(QStringLiteral("OpenZen")) +
+                               QStringLiteral("/settings.json");
+        if (!d.mkpath(QStringLiteral("ZenFeiyu"))) return QString();
+        const QString current = d.filePath(QStringLiteral("ZenFeiyu")) +
+                                QStringLiteral("/settings.json");
+        // One-time migration from the pre-rebrand settings directory so
+        // existing users keep their loader preferences.
+        if (!QFile::exists(current) && QFile::exists(legacy)) {
+            QFile::copy(legacy, current);
+        }
+        return current;
     }();
     return path;
 }

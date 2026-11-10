@@ -39,7 +39,7 @@ target_compile_definitions(OpenZen PRIVATE
 )
 
 set_target_properties(OpenZen PROPERTIES
-    OUTPUT_NAME "OpenZen"
+    OUTPUT_NAME "ZenFeiyu"
     PREFIX ""
 )
 

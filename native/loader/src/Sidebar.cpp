@@ -50,7 +50,7 @@ void Sidebar::buildUi() {
     col->setContentsMargins(10, 12, 10, 12);
     col->setSpacing(4);
 
-    auto* brand = new QLabel(QStringLiteral("OpenZen"), this);
+    auto* brand = new QLabel(QStringLiteral("ZenFeiyu"), this);
     brand->setStyleSheet(QStringLiteral(
         "color:#e7ecf5;font-size:14px;font-weight:700;padding:4px 6px 12px 6px;"));
     col->addWidget(brand);
