@@ -4,6 +4,7 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import java.awt.Color;
 import net.minecraft.client.gui.screens.ChatScreen;
 import net.minecraft.client.player.AbstractClientPlayer;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import shit.zen.event.EventTarget;
@@ -21,6 +22,8 @@ import shit.zen.render.Renderer;
 import shit.zen.render.RoundedRectangle;
 import shit.zen.utils.animation.SmoothAnimationTimer;
 import shit.zen.utils.math.Easings;
+import shit.zen.utils.math.Vector2f;
+import shit.zen.utils.render.ProjectionUtil;
 import shit.zen.utils.render.RenderUtil;
 
 /**
@@ -49,6 +52,8 @@ extends HudElement {
     private long lastAttackTime;
     private LivingEntity renderedTarget;
     private boolean wasAttacking = false;
+    private float lastPanelX = Float.NaN;
+    private float lastPanelY = Float.NaN;
 
     public AttackTargetHud() {
         super("AttackTargetHUD");
@@ -152,9 +157,54 @@ extends HudElement {
         // Calculate distance
         float distance = mc.player.distanceTo(target);
 
+        float panelX;
+        float panelY;
+        if (mc.screen instanceof ChatScreen) {
+            // Keep the HUD draggable while the chat screen is open.
+            panelX = x;
+            panelY = y;
+            this.lastPanelX = panelX;
+            this.lastPanelY = panelY;
+        } else {
+            // Anchor the panel to the right side of the attacked entity and
+            // let it follow the entity as it moves.
+            float partialTick = render2DEvent.partialTick();
+            double pt = partialTick;
+            double worldX = target.xo + (target.getX() - target.xo) * pt;
+            double worldY = target.yo + (target.getY() - target.yo) * pt + target.getBbHeight() * 0.5;
+            double worldZ = target.zo + (target.getZ() - target.zo) * pt;
+            Vector2f screenPos = ProjectionUtil.project(worldX, worldY, worldZ, partialTick);
+            if (screenPos == null || screenPos.x >= Float.MAX_VALUE - 1.0f
+                    || screenPos.y >= Float.MAX_VALUE - 1.0f
+                    || !Float.isFinite(screenPos.x) || !Float.isFinite(screenPos.y)) {
+                return;
+            }
+            float guiWidth = mc.getWindow().getGuiScaledWidth();
+            float guiHeight = mc.getWindow().getGuiScaledHeight();
+            float offset = 26.0f;
+            panelX = screenPos.x + offset;
+            panelY = screenPos.y - PANEL_HEIGHT / 2.0f;
+            if (panelX + PANEL_WIDTH > guiWidth - 4.0f) {
+                panelX = screenPos.x - PANEL_WIDTH - offset;
+            }
+            panelX = Mth.clamp(panelX, 4.0f, Math.max(4.0f, guiWidth - PANEL_WIDTH - 4.0f));
+            panelY = Mth.clamp(panelY, 4.0f, Math.max(4.0f, guiHeight - PANEL_HEIGHT - 4.0f));
+            if (Float.isNaN(this.lastPanelX) || Float.isNaN(this.lastPanelY)) {
+                this.lastPanelX = panelX;
+                this.lastPanelY = panelY;
+            } else {
+                this.lastPanelX = Mth.lerp(0.35f, this.lastPanelX, panelX);
+                this.lastPanelY = Mth.lerp(0.35f, this.lastPanelY, panelY);
+            }
+            panelX = this.lastPanelX;
+            panelY = this.lastPanelY;
+        }
+        final float drawX = panelX;
+        final float drawY = panelY;
+
         PoseStack poseStack = render2DEvent.poseStack();
         poseStack.pushPose();
-        RenderUtil.drawBlurredRect(poseStack, x, y, PANEL_WIDTH, PANEL_HEIGHT, 7.0f, 15.0f, 0.92f * fade, 0);
+        RenderUtil.drawBlurredRect(poseStack, drawX, drawY, PANEL_WIDTH, PANEL_HEIGHT, 7.0f, 15.0f, 0.92f * fade, 0);
         poseStack.popPose();
 
         String name = target == mc.player ? NameProtect.getProtectedName() : target.getName().getString();
@@ -174,7 +224,7 @@ extends HudElement {
             barColor2 = new Color(214, 48, 96);
         }
         Renderer.renderConsumer((drawContext -> {
-            RoundedRectangle panel = RoundedRectangle.ofXYWHR(x, y, PANEL_WIDTH, PANEL_HEIGHT, 7.0f);
+            RoundedRectangle panel = RoundedRectangle.ofXYWHR(drawX, drawY, PANEL_WIDTH, PANEL_HEIGHT, 7.0f);
             try (Paint paint = new Paint()) {
                 paint.setColor(new Color(14, 16, 22, (int) (120.0f * fade)).getRGB());
                 drawContext.drawRoundedRect(panel, paint);
@@ -183,11 +233,11 @@ extends HudElement {
                 rim.setColor(new Color(255, 255, 255, (int) (52.0f * fade)).getRGB());
                 rim.setStrokeCap(Paint.StrokeCap.STROKE);
                 rim.setStrokeWidth(1.0f);
-                drawContext.drawRoundedRect(RoundedRectangle.ofXYWHR(x + 0.5f, y + 0.5f,
+                drawContext.drawRoundedRect(RoundedRectangle.ofXYWHR(drawX + 0.5f, drawY + 0.5f,
                         PANEL_WIDTH - 1.0f, PANEL_HEIGHT - 1.0f, 6.5f), rim);
             }
-            float headX = x + 5.0f + shakeOffset;
-            float headY = y + (PANEL_HEIGHT - HEAD_SIZE) / 2.0f;
+            float headX = drawX + 5.0f + shakeOffset;
+            float headY = drawY + (PANEL_HEIGHT - HEAD_SIZE) / 2.0f;
             if (target instanceof AbstractClientPlayer player) {
                 // Apply blur effect when attacking
                 if (blurAmount > 0.5f) {
@@ -204,22 +254,22 @@ extends HudElement {
                 }
             }
             float contentX = headX + HEAD_SIZE + 6.0f - shakeOffset;
-            float nameY = y + 6.0f;
+            float nameY = drawY + 6.0f;
             GlHelper.drawTextShadowLegacy(name, contentX, nameY, nameFont,
                     new Color(1.0f, 1.0f, 1.0f, fade).getRGB());
 
             // Distance display
             String distText = String.format("%.1fm", distance);
             float distWidth = GlHelper.getStringWidth(distText, valueFont);
-            GlHelper.drawTextShadowLegacy(distText, x + PANEL_WIDTH - 6.0f - distWidth, nameY + 16.0f, valueFont,
+            GlHelper.drawTextShadowLegacy(distText, drawX + PANEL_WIDTH - 6.0f - distWidth, nameY + 16.0f, valueFont,
                     new Color(0.7f, 0.7f, 1.0f, fade * 0.85f).getRGB());
 
             String hpText = String.format("%.1f", healthValue);
             float hpWidth = GlHelper.getStringWidth(hpText, valueFont);
-            GlHelper.drawTextShadowLegacy(hpText, x + PANEL_WIDTH - 6.0f - hpWidth, nameY + 3.0f, valueFont,
+            GlHelper.drawTextShadowLegacy(hpText, drawX + PANEL_WIDTH - 6.0f - hpWidth, nameY + 3.0f, valueFont,
                     new Color(1.0f, 1.0f, 1.0f, fade * 0.9f).getRGB());
 
-            float barY = y + PANEL_HEIGHT - 14.0f;
+            float barY = drawY + PANEL_HEIGHT - 14.0f;
             float barH = 4.0f;
             try (Paint bg = new Paint()) {
                 bg.setColor(new Color(0, 0, 0, (int) (110.0f * fade)).getRGB());
