@@ -1,10 +1,10 @@
 package shit.zen.hud;
 
 import java.awt.Color;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
-import java.util.stream.Collectors;
 import com.mojang.blaze3d.vertex.PoseStack;
-import net.minecraft.util.Mth;
 import shit.zen.ZenClient;
 import shit.zen.event.impl.GlRenderEvent;
 import shit.zen.event.impl.Render2DEvent;
@@ -52,14 +52,56 @@ extends HudElement {
         this.setY(4.0f);
     }
 
-    private List<Module> getVisibleModules() {
-        return ZenClient.getInstance().getModuleManager().getModules().stream()
-                .filter(module -> !(module instanceof ModuleListHud) && !(module instanceof Interface))
-                .filter(Module::isEnabled)
-                .filter(module -> !module.getName().isEmpty())
-                .sorted((a, b) -> Mth.ceil(GlHelper.getStringWidth(b.getName(), FONT)
-                        - GlHelper.getStringWidth(a.getName(), FONT)))
-                .collect(Collectors.toList());
+    private List<Module> visibleModules = Collections.emptyList();
+    private long visibleSignature = Long.MIN_VALUE;
+    private float widestModule;
+    private String cachedFpsText = "";
+    private float cachedFpsWidth;
+    private static final float TITLE_WIDTH = GlHelper.getStringWidth("Zen", FONT);
+
+    /**
+     * Rebuilds the sorted visible-module list only when the enabled set
+     * changes. The previous version filtered, sorted and measured glyph widths
+     * on every frame, allocating a list and a stream pipeline 60+ times per
+     * second for a list that almost never changes.
+     */
+    private void refreshVisibleModules() {
+        List<Module> modules = ZenClient.getInstance().getModuleManager().getModules();
+        long signature = 1469598103934665603L;
+        int enabled = 0;
+        for (int i = 0; i < modules.size(); i++) {
+            Module module = modules.get(i);
+            if (!module.isEnabled() || module instanceof ModuleListHud || module instanceof Interface) {
+                continue;
+            }
+            String name = module.getName();
+            if (name.isEmpty()) {
+                continue;
+            }
+            signature = (signature ^ name.hashCode()) * 1099511628211L;
+            ++enabled;
+        }
+        if (signature == this.visibleSignature && enabled == this.visibleModules.size()) {
+            return;
+        }
+        ArrayList<Module> visible = new ArrayList<>(enabled);
+        for (int i = 0; i < modules.size(); i++) {
+            Module module = modules.get(i);
+            if (module.isEnabled() && !(module instanceof ModuleListHud) && !(module instanceof Interface)
+                    && !module.getName().isEmpty()) {
+                visible.add(module);
+            }
+        }
+        visible.sort((a, b) -> Float.compare(
+                GlHelper.getStringWidth(b.getName(), FONT),
+                GlHelper.getStringWidth(a.getName(), FONT)));
+        float widest = 0.0f;
+        for (int i = 0; i < visible.size(); i++) {
+            widest = Math.max(widest, GlHelper.getStringWidth(visible.get(i).getName(), FONT));
+        }
+        this.visibleModules = visible;
+        this.widestModule = widest;
+        this.visibleSignature = signature;
     }
 
     @Override
@@ -70,14 +112,16 @@ extends HudElement {
         if (!ZenClient.getInstance().getModuleManager().getModule(Interface.class).isEnabled()) {
             return;
         }
-        List<Module> visibleModules = this.getVisibleModules();
+        this.refreshVisibleModules();
+        List<Module> visibleModules = this.visibleModules;
         String header = "Zen";
         String fps = "(" + mc.getFps() + "FPS)";
-        float headerWidth = GlHelper.getStringWidth(header, FONT) + GlHelper.getStringWidth(fps, FONT);
-        float textWidth = headerWidth;
-        for (Module module : visibleModules) {
-            textWidth = Math.max(textWidth, GlHelper.getStringWidth(module.getName(), FONT));
+        if (!fps.equals(this.cachedFpsText)) {
+            this.cachedFpsText = fps;
+            this.cachedFpsWidth = GlHelper.getStringWidth(fps, FONT);
         }
+        float headerWidth = TITLE_WIDTH + this.cachedFpsWidth;
+        float textWidth = Math.max(headerWidth, this.widestModule);
         float rowWidth = LEFT_PADDING + textWidth + BAR_TEXT_GAP + BAR_WIDTH + BAR_RIGHT_PADDING;
         float totalHeight = ROW_HEIGHT + (visibleModules.isEmpty() ? 0.0f
                 : ROW_GAP + visibleModules.size() * ROW_HEIGHT + (visibleModules.size() - 1) * ROW_GAP);

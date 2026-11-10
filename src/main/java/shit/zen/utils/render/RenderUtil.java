@@ -74,6 +74,28 @@ extends ClientBase {
     private static boolean blurFailed;
     private static float zLevel;
 
+    /**
+     * Backdrop capture shared by every {@link #drawBlurredRect} call in the
+     * current frame. A blurred HUD can easily request dozens of rectangles per
+     * frame (module-list rows, nametags, player list, target HUD, ...) and each
+     * one used to copy the whole framebuffer into a texture target and switch
+     * render targets. That is several full-screen blits per frame and was the
+     * main source of stutter; now the copy is done once and every blur rect
+     * samples the same texture.
+     */
+    private static boolean blurCaptureValid;
+    private static long blurCaptureNanos;
+    private static final long BLUR_CAPTURE_TTL_NS = 250_000_000L;
+
+    /**
+     * Starts a new render frame, invalidating the shared blur backdrop. Called
+     * from the GameRenderer hooks: once before the world pass and once after
+     * the vanilla HUD so the HUD blurs capture the finished scene.
+     */
+    public static void beginBlurFrame() {
+        blurCaptureValid = false;
+    }
+
     public static void drawGradientV(PoseStack poseStack, float x, float y, float width, float height, int colorTop, int colorBottom) {
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
@@ -238,6 +260,7 @@ extends ClientBase {
             TextureTarget textureTarget = textureTargetSupplier.get();
             if (textureTarget.width != RenderUtil.mainRenderTarget.width || textureTarget.height != RenderUtil.mainRenderTarget.height) {
                 textureTarget.resize(RenderUtil.mainRenderTarget.width, RenderUtil.mainRenderTarget.height, Minecraft.ON_OSX);
+                blurCaptureValid = false;
             }
             Matrix4f matrix4f = poseStack.last().pose();
             int blendColor = color == 0 ? ColorUtil.fromARGB(255, 255, 255, 255) : color;
@@ -250,10 +273,18 @@ extends ClientBase {
             long gameTime = mc.level != null ? mc.level.getGameTime() : -1L;
             boolean shouldBlurTmp = shouldBlur = !isLargeRect || gameTime != -1L;
             if (shouldBlur) {
-                textureTarget.bindWrite(false);
-                blitPoseStack = new PoseStack();
-                RenderHelper.blitRenderTarget(mainRenderTarget, blitPoseStack, textureTarget.width, textureTarget.height);
-                mainRenderTarget.bindWrite(false);
+                // Reuse the capture taken earlier this frame when it is still
+                // fresh. Without this every blurred rectangle copied the entire
+                // framebuffer, which tanked the framerate on a busy HUD.
+                boolean stale = System.nanoTime() - blurCaptureNanos > BLUR_CAPTURE_TTL_NS;
+                if (!blurCaptureValid || stale) {
+                    textureTarget.bindWrite(false);
+                    blitPoseStack = new PoseStack();
+                    RenderHelper.blitRenderTarget(mainRenderTarget, blitPoseStack, textureTarget.width, textureTarget.height);
+                    mainRenderTarget.bindWrite(false);
+                    blurCaptureValid = true;
+                    blurCaptureNanos = System.nanoTime();
+                }
             }
             blurShader.use();
             GL20.glUniform1i(blurShader.getUniformLocation("Sampler0"), 0);
@@ -679,7 +710,16 @@ extends ClientBase {
         int cacheKey;
         x -= (float)blurRadius;
         y -= (float)blurRadius;
-        if (!shadowCache.containsKey(cacheKey = (int)((width += (float)(blurRadius * 2)) * (height += (float)(blurRadius * 2)) + width * (float)blurRadius))) {
+        width += (float)(blurRadius * 2);
+        height += (float)(blurRadius * 2);
+        // Quantise the shadow texture size onto a 4px grid. A HUD row's width
+        // changes whenever a digit does (FPS counter, health, distance, ...),
+        // and every new size rebuilt a BufferedImage + Gaussian blur on the
+        // render thread - visible as periodic hitches. On a soft shadow the
+        // rounding is invisible.
+        width = Math.max(4.0f, Math.round(width / 4.0f) * 4.0f);
+        height = Math.max(4.0f, Math.round(height / 4.0f) * 4.0f);
+        if (!shadowCache.containsKey(cacheKey = (int)(width * height + width * (float)blurRadius))) {
             BufferedImage bufferedImage = new BufferedImage((int)width, (int)height, 2);
             Graphics graphics = bufferedImage.getGraphics();
             graphics.setColor(new Color(-1));

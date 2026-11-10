@@ -259,12 +259,14 @@ extends HudElement {
                     new Color(1.0f, 1.0f, 1.0f, fade).getRGB());
 
             // Distance display
-            String distText = String.format("%.1fm", distance);
+            // String.format parses its pattern and allocates a Formatter every
+            // call; this runs for every frame of a fight, so use the cheap path.
+            String distText = formatOneDecimal(distance) + "m";
             float distWidth = GlHelper.getStringWidth(distText, valueFont);
             GlHelper.drawTextShadowLegacy(distText, drawX + PANEL_WIDTH - 6.0f - distWidth, nameY + 16.0f, valueFont,
                     new Color(0.7f, 0.7f, 1.0f, fade * 0.85f).getRGB());
 
-            String hpText = String.format("%.1f", healthValue);
+            String hpText = formatOneDecimal(healthValue);
             float hpWidth = GlHelper.getStringWidth(hpText, valueFont);
             GlHelper.drawTextShadowLegacy(hpText, drawX + PANEL_WIDTH - 6.0f - hpWidth, nameY + 3.0f, valueFont,
                     new Color(1.0f, 1.0f, 1.0f, fade * 0.9f).getRGB());
@@ -290,6 +292,12 @@ extends HudElement {
 
     @Override
     public void onSettings() {
+    }
+
+    /** One-decimal formatting without {@link String#format} in the frame loop. */
+    private static String formatOneDecimal(float value) {
+        int scaled = Math.round(Math.abs(value) * 10.0f);
+        return (value < 0.0f ? "-" : "") + (scaled / 10) + "." + (scaled % 10);
     }
 
     @Override

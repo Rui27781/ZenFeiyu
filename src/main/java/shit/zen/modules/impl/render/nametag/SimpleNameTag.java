@@ -1,6 +1,5 @@
 package shit.zen.modules.impl.render.nametag;
 
-import java.awt.Color;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -27,8 +26,11 @@ import shit.zen.utils.render.ProjectionUtil;
 import shit.zen.utils.render.RenderUtil;
 
 public class SimpleNameTag extends NameTagStyle {
+    private static final int TAG_BG_COLOR = 0x50000000;
+    private static final int ITEM_BG_COLOR = 0x78000000;
     private final Map<Entity, Vector2f> entityPositions = new ConcurrentHashMap<>();
     private final List<BlurRect> blurRects = new ArrayList<>();
+    private final Map<ItemStack, Vector2f> itemPositions = new ConcurrentHashMap<>();
     private final FontRenderer font = FontPresets.pingfang(16.0f);
     private Paint paint;
 
@@ -55,16 +57,23 @@ public class SimpleNameTag extends NameTagStyle {
 
     private int getHealthColor(float ratio) {
         ratio = Math.max(0.0f, Math.min(1.0f, ratio));
+        int red;
+        int green;
         if (ratio >= 0.6f) {
             float t = (ratio - 0.6f) / 0.4f;
-            return new Color((int) (255.0f * (1.0f - t)), 255, 0).getRGB();
-        }
-        if (ratio >= 0.3f) {
+            red = (int) (255.0f * (1.0f - t));
+            green = 255;
+        } else if (ratio >= 0.3f) {
             float t = (ratio - 0.3f) / 0.3f;
-            return new Color(255, (int) (255.0f * t), 0).getRGB();
+            red = 255;
+            green = (int) (255.0f * t);
+        } else {
+            float t = ratio / 0.3f;
+            red = (int) (128.0f + 127.0f * t);
+            green = 0;
         }
-        float t = ratio / 0.3f;
-        return new Color((int) (128.0f + 127.0f * t), 0, 0).getRGB();
+        // Avoid allocating a Color object per nametag per frame.
+        return 0xFF000000 | (red << 16) | (green << 8);
     }
 
     private void updatePositions(float partialTick) {
@@ -109,11 +118,11 @@ public class SimpleNameTag extends NameTagStyle {
             return;
         }
         this.blurRects.clear();
+        this.itemPositions.clear();
         float scale = NameTags.INSTANCE.scaleSetting.getValue().floatValue();
         float corner = 6.0f;
         int padding = 4;
         int gap = 4;
-        Map<ItemStack, Vector2f> itemPositions = new ConcurrentHashMap<>();
         Renderer.renderConsumer(ctx -> {
             for (Map.Entry<Entity, Vector2f> entry : this.entityPositions.entrySet()) {
                 Entity entity = entry.getKey();
@@ -161,15 +170,15 @@ public class SimpleNameTag extends NameTagStyle {
                 if (this.paint == null) {
                     this.paint = new Paint();
                 }
-                this.paint.setColor(new Color(0, 0, 0, 80).getRGB());
+                this.paint.setColor(TAG_BG_COLOR);
                 ctx.drawRoundedRect(RoundedRectangle.ofXYWHR(originX, originY, boxWidth, boxHeight, corner), this.paint);
                 if (ratio > 0.0f) {
-                    this.paint.setColor(new Color(0, 0, 0, 80).getRGB());
+                    this.paint.setColor(TAG_BG_COLOR);
                     ctx.drawRoundedRect(RoundedRectangle.ofXYWHR(originX, originY, boxWidth * ratio, boxHeight, corner), this.paint);
                 }
                 int healthColor = this.getHealthColor(ratio);
                 float baseline = originY + padding + this.font.getMetrics().ascent() + 35.0f;
-                this.paint.setColor(Color.WHITE.getRGB());
+                this.paint.setColor(0xFFFFFFFF);
                 ctx.drawString(nameText, originX + padding, baseline, this.font, this.paint);
                 float nameW = this.font.getBounds(nameText).getWidth();
                 this.paint.setColor(healthColor);
@@ -177,14 +186,14 @@ public class SimpleNameTag extends NameTagStyle {
                 if (hasAlerts) {
                     float itemCursorX = originX + textWidth + padding * 2 + gap;
                     for (ItemStack item : alertItems) {
-                        this.paint.setColor(new Color(0, 0, 0, 120).getRGB());
+                        this.paint.setColor(ITEM_BG_COLOR);
                         ctx.drawRoundedRect(RoundedRectangle.ofXYWHR(itemCursorX, originY, itemBoxSize, boxHeight, corner), this.paint);
                         float itemX = screenPos.x + itemCursorX * scale;
                         float itemY = screenPos.y + originY * scale;
                         float itemDrawSize = itemBoxSize * scale;
                         float centerX = itemX + itemDrawSize / 2.0f;
                         float centerY = itemY + itemDrawSize / 2.0f;
-                        itemPositions.put(item, new Vector2f(centerX - 8.0f, centerY - 8.0f));
+                        this.itemPositions.put(item, new Vector2f(centerX - 8.0f, centerY - 8.0f));
                         itemCursorX += itemBoxSize + gap;
                     }
                 }
@@ -194,7 +203,7 @@ public class SimpleNameTag extends NameTagStyle {
         for (BlurRect rect : this.blurRects) {
             RenderUtil.drawBlurredRect(event.guiGraphics().pose(), rect.x, rect.y, rect.width, rect.height, 8.0f, 2.0f, 0.6f, 0);
         }
-        for (Map.Entry<ItemStack, Vector2f> entry : itemPositions.entrySet()) {
+        for (Map.Entry<ItemStack, Vector2f> entry : this.itemPositions.entrySet()) {
             ItemStack item = entry.getKey();
             Vector2f pos = entry.getValue();
             event.guiGraphics().renderItem(item, Math.round(pos.x), Math.round(pos.y));

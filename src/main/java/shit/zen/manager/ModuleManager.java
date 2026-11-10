@@ -164,7 +164,12 @@ public class ModuleManager extends ClientBase {
     public void register(Module module) {
         this.moduleMap.put(module.getClass().getSimpleName(), module);
         module.registerSettings();
+        // Cache the snapshot: getModules() is polled from the HUD every frame,
+        // and rebuilding a stream-backed list there just created garbage.
+        this.moduleSnapshot = List.copyOf(this.moduleMap.values());
     }
+
+    private volatile List<Module> moduleSnapshot = List.of();
 
     public Module getModule(String string) {
         Module module = null;
@@ -187,7 +192,7 @@ public class ModuleManager extends ClientBase {
     }
 
     public List<Module> getModules() {
-        return this.moduleMap.values().stream().toList();
+        return this.moduleSnapshot;
     }
 
     public List<Module> getModulesByCategory(Category category) {

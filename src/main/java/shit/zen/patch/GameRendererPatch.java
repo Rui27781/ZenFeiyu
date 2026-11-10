@@ -20,6 +20,7 @@ import shit.zen.modules.impl.render.FullBright;
 import shit.zen.modules.impl.render.NoHurtCam;
 import shit.zen.render.Renderer;
 import shit.zen.utils.misc.ReflectionUtil;
+import shit.zen.utils.render.RenderUtil;
 
 @Patch(GameRenderer.class)
 public class GameRendererPatch {
@@ -31,6 +32,13 @@ public class GameRendererPatch {
         return entity.hasEffect(MobEffects.NIGHT_VISION) ? 1.0f : 0.0f;
     }
 
+    @Inject(method = "render", desc = "(FJZ)V", at = @At(At.Type.HEAD))
+    public static void onRenderHead(GameRenderer gameRenderer, float partialTick, long nanoTime, boolean renderLevel, CallbackInfo callbackInfo) {
+        // Start a new frame for the shared blur backdrop: world-space blur
+        // (e.g. Projectiles) must not sample the previous frame's texture.
+        RenderUtil.beginBlurFrame();
+    }
+
     @Inject(
             method = "render",
             desc = "(FJZ)V",
@@ -39,6 +47,10 @@ public class GameRendererPatch {
     public static void onRender(GameRenderer gameRenderer, float partialTick, long nanoTime, boolean renderLevel, CallbackInfo callbackInfo) {
         GuiGraphics graphics = new GuiGraphics(gameRenderer.getMinecraft(), gameRenderer.getMinecraft().renderBuffers().bufferSource());
         Render2DEvent event = new Render2DEvent(graphics.pose(), graphics, partialTick);
+        // The world pass is finished here; recapture the backdrop once so every
+        // blurred HUD element shares the same (finished) scene instead of each
+        // element copying the framebuffer on its own.
+        RenderUtil.beginBlurFrame();
         if (ZenClient.isReady()) {
             ZenClient.getInstance().getEventBus().call(event);
             graphics.pose().pushPose();
