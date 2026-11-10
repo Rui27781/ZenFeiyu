@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QElapsedTimer>
 #include <QString>
 #include <QWidget>
 
@@ -17,6 +18,7 @@ class InjectionOverlay : public QWidget {
     Q_PROPERTY(qreal progress          READ progress          WRITE setProgress)
     Q_PROPERTY(qreal panelOpacity      READ panelOpacity      WRITE setPanelOpacity)
     Q_PROPERTY(qreal checkmarkProgress READ checkmarkProgress WRITE setCheckmarkProgress)
+    Q_PROPERTY(qreal textReveal        READ textReveal        WRITE setTextReveal)
 
 public:
     InjectionOverlay(unsigned long pid, const QString& target,
@@ -29,11 +31,13 @@ public:
     qreal progress()          const { return progress_; }
     qreal panelOpacity()      const { return panelOpacity_; }
     qreal checkmarkProgress() const { return checkmarkProgress_; }
+    qreal textReveal()        const { return textReveal_; }
 
     void setSpinnerAngle(qreal v)      { spinnerAngle_      = v; update(); }
     void setProgress(qreal v)          { progress_          = v; update(); }
     void setPanelOpacity(qreal v)      { panelOpacity_      = v; update(); }
     void setCheckmarkProgress(qreal v) { checkmarkProgress_ = v; update(); }
+    void setTextReveal(qreal v)        { textReveal_        = v; update(); }
 
 signals:
     void completed(bool success, unsigned long pid);
@@ -43,6 +47,7 @@ protected:
 
 private:
     void onInjectResult(QString err);
+    void playFinishSequence();
 
     unsigned long pid_;
     QString       target_;
@@ -53,10 +58,15 @@ private:
     qreal progress_          = 0.0;
     qreal panelOpacity_      = 0.0;
     qreal checkmarkProgress_ = 0.0;
+    qreal textReveal_        = 0.0;
 
     bool    injectDone_ = false;
     bool    injectOk_   = false;
     QString injectErr_;
+
+    // Enforces a minimum on-screen time so a fast injection does not just
+    // flash the overlay before the reveal animation has played.
+    QElapsedTimer shownTimer_;
 
     QPropertyAnimation* spinnerAnim_  = nullptr;
     QPropertyAnimation* progressAnim_ = nullptr;

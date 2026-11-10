@@ -41,7 +41,7 @@ extends ClientBase {
         float centerX = screenWidth / 2.0f;
         float centerY = screenHeight / 2.0f;
         long zAppearStart = 1100L;
-        long fadeOutStart = zAppearStart + 900L + 1200L;
+        long fadeOutStart = zAppearStart + 1000L + 1200L;
         if (elapsed <= 800L) {
             float fadeIn = IntroAnimation.easeOutCubic(IntroAnimation.clamp01((float)elapsed / 800.0f));
             bgAlpha = 0.6f * fadeIn;
@@ -60,8 +60,8 @@ extends ClientBase {
         float logoAlpha = 0.0f;
         if (elapsed >= zAppearStart) {
             long sinceAppear = elapsed - zAppearStart;
-            if (sinceAppear <= 900L) {
-                float appearProgress = IntroAnimation.easeOutCubic(IntroAnimation.clamp01((float)sinceAppear / 900.0f));
+            if (sinceAppear <= 1000L) {
+                float appearProgress = IntroAnimation.easeOutCubic(IntroAnimation.clamp01((float)sinceAppear / 1000.0f));
                 logoScale = IntroAnimation.lerp(2.0f, 1.0f, appearProgress);
                 logoAlpha = appearProgress;
             } else {
@@ -79,6 +79,24 @@ extends ClientBase {
         float logoX = centerX - logoWidth / 2.0f;
         float logoY = centerY - logoFont.getMetrics().capHeight() / 2.0f;
         int logoColor = new Color(1.0f, 1.0f, 1.0f, IntroAnimation.clamp01(logoAlpha * fadeFactor)).getRGB();
+        // Soft blue halo behind the wordmark: a ring of low-alpha copies
+        // gives the glyphs a glow without needing a blur shader. It grows as
+        // the logo fades in from nothing.
+        float glowStrength = IntroAnimation.clamp01(logoAlpha * fadeFactor);
+        if (glowStrength > 0.01f) {
+            float spread = 2.5f + 3.0f * (1.0f - logoAlpha);
+            int outerGlow = new Color(0.47f, 0.66f, 1.0f, 0.13f * glowStrength).getRGB();
+            int innerGlow = new Color(0.60f, 0.78f, 1.0f, 0.18f * glowStrength).getRGB();
+            for (int i = 0; i < 8; i++) {
+                double angle = Math.PI * 2.0 * i / 8.0;
+                float ox = (float)Math.cos(angle);
+                float oy = (float)Math.sin(angle);
+                GlHelper.drawText(logoText, logoX + ox * spread, logoY + oy * spread,
+                        logoFont, outerGlow);
+                GlHelper.drawText(logoText, logoX + ox * spread * 0.5f, logoY + oy * spread * 0.5f,
+                        logoFont, innerGlow);
+            }
+        }
         GlHelper.drawText(logoText, logoX, logoY, logoFont, logoColor);
     }
 

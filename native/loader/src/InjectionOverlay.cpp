@@ -14,8 +14,10 @@
 #include <QRadialGradient>
 #include <QScreen>
 #include <QSequentialAnimationGroup>
+#include <QTimer>
 
 #include <algorithm>
+#include <cmath>
 #include <thread>
 
 namespace loader {
@@ -24,6 +26,36 @@ namespace {
 constexpr int kW = 460;
 constexpr int kH = 240;
 constexpr int kCornerRadius = 16;
+// Even when the DLL maps almost instantly the overlay stays up for at least
+// this long, so the 1s text reveal is actually visible.
+constexpr int kMinVisibleMs = 1000;
+constexpr int kTextRevealMs = 1000;
+
+// Paints text with a soft blue glow. Qt has no cheap text blur, so the glow
+// is built from a few wide strokes of the glyph outline underneath the fill.
+void drawGlowText(QPainter& p, const QPointF& baseline, const QString& text,
+                  const QFont& font, const QColor& color, qreal alpha) {
+    if (alpha <= 0.001 || text.isEmpty()) {
+        return;
+    }
+    QPainterPath path;
+    path.addText(baseline, font, text);
+
+    p.save();
+    p.setBrush(Qt::NoBrush);
+    for (int layer = 3; layer >= 1; --layer) {
+        const int a = static_cast<int>(alpha * (12 + layer * 9));
+        QColor glow(127, 176, 255, std::clamp(a, 0, 255));
+        p.setPen(QPen(glow, layer * 4.5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        p.drawPath(path);
+    }
+    QColor fill = color;
+    fill.setAlphaF(color.alphaF() * alpha);
+    p.setPen(Qt::NoPen);
+    p.setBrush(fill);
+    p.drawPath(path);
+    p.restore();
+}
 } // namespace
 
 InjectionOverlay::InjectionOverlay(unsigned long pid, const QString& target,
@@ -51,6 +83,7 @@ void InjectionOverlay::start() {
     show();
     raise();
     activateWindow();
+    shownTimer_.start();
 
     // Panel fade in.
     auto* panelFade = new QPropertyAnimation(this, "panelOpacity", this);
@@ -59,6 +92,15 @@ void InjectionOverlay::start() {
     panelFade->setEndValue(1.0);
     panelFade->setEasingCurve(QEasingCurve::OutCubic);
     panelFade->start(QAbstractAnimation::DeleteWhenStopped);
+
+    // Text reveal: the labels fade in from nothing over one second while
+    // rising slightly into place.
+    auto* textReveal = new QPropertyAnimation(this, "textReveal", this);
+    textReveal->setDuration(kTextRevealMs);
+    textReveal->setStartValue(0.0);
+    textReveal->setEndValue(1.0);
+    textReveal->setEasingCurve(QEasingCurve::OutCubic);
+    textReveal->start(QAbstractAnimation::DeleteWhenStopped);
 
     // Continuous spinner rotation.
     spinnerAnim_ = new QPropertyAnimation(this, "spinnerAngle", this);
@@ -103,17 +145,28 @@ void InjectionOverlay::start() {
 }
 
 void InjectionOverlay::onInjectResult(QString err) {
+    injectOk_  = err.isEmpty();
+    injectErr_ = err;
+
+    // Hold the splash for at least a second so the reveal is never cut short.
+    const qint64 remaining = kMinVisibleMs - shownTimer_.elapsed();
+    if (remaining > 0) {
+        QTimer::singleShot(static_cast<int>(remaining), this,
+                           &InjectionOverlay::playFinishSequence);
+    } else {
+        playFinishSequence();
+    }
+}
+
+void InjectionOverlay::playFinishSequence() {
     injectDone_ = true;
-    injectOk_   = err.isEmpty();
-    injectErr_  = err;
-
-    if (spinnerAnim_)  spinnerAnim_->stop();
-    if (progressAnim_) progressAnim_->stop();
-
     statusText_ = injectOk_
         ? QStringLiteral("Injection complete")
         : QStringLiteral("Injection failed: ") + injectErr_;
     update();
+
+    if (spinnerAnim_)  spinnerAnim_->stop();
+    if (progressAnim_) progressAnim_->stop();
 
     // Finish progress bar quickly, then animate the success/failure mark
     // drawing in, hold a beat, fade out.
@@ -227,25 +280,31 @@ void InjectionOverlay::paintEvent(QPaintEvent*) {
         }
     }
 
-    // Status text.
+    // Status text. The reveal animation fades it in from nothing, scales it
+    // up slightly and slides it into place; drawGlowText adds the halo.
+    const qreal reveal = std::clamp(textReveal_, 0.0, 1.0);
     {
         QFont f(QStringLiteral("Segoe UI"));
         f.setPointSize(12);
         f.setBold(true);
-        p.setFont(f);
-        p.setPen(QColor("#e3e7ef"));
         QFontMetricsF fm(f);
         qreal tw = fm.horizontalAdvance(statusText_);
-        p.drawText(QPointF(rect.center().x() - tw / 2, rect.top() + 140),
-                   statusText_);
+        qreal tx = rect.center().x() - tw / 2.0;
+        qreal ty = rect.top() + 140 + (1.0 - reveal) * 8.0;
+        const qreal scale = 0.94 + 0.06 * reveal;
+
+        p.save();
+        p.translate(rect.center().x(), rect.top() + 140);
+        p.scale(scale, scale);
+        p.translate(-rect.center().x(), -(rect.top() + 140));
+        drawGlowText(p, QPointF(tx, ty), statusText_, f, QColor("#e3e7ef"), reveal);
+        p.restore();
     }
 
     // Target subtitle.
     {
         QFont f(QStringLiteral("Segoe UI"));
         f.setPointSize(9);
-        p.setFont(f);
-        p.setPen(QColor("#8a90a0"));
         QFontMetricsF fm(f);
         QString sub = QStringLiteral("PID %1 · %2").arg(pid_).arg(target_);
         // Truncate overly long titles so the subtitle still fits inside
@@ -255,8 +314,9 @@ void InjectionOverlay::paintEvent(QPaintEvent*) {
             sub = fm.elidedText(sub, Qt::ElideMiddle, static_cast<int>(maxW));
         }
         qreal sw = fm.horizontalAdvance(sub);
-        p.drawText(QPointF(rect.center().x() - sw / 2, rect.top() + 162),
-                   sub);
+        qreal ty = rect.top() + 162 + (1.0 - reveal) * 8.0;
+        drawGlowText(p, QPointF(rect.center().x() - sw / 2.0, ty), sub, f,
+                     QColor("#8a90a0"), reveal * 0.85);
     }
 
     // Progress bar.
