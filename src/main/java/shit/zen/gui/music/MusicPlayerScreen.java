@@ -317,6 +317,15 @@ public class MusicPlayerScreen extends Screen {
         this.drawControl(poseStack, textX + 36.0f, controlsY - 4.0f, 34.0f, playIcon, playHovered, true);
         this.drawControl(poseStack, textX + 78.0f, controlsY, 26.0f, "\ue044", nextHovered, false);
 
+        // Repeat mode: dim = off, accent repeat = whole playlist, accent
+        // repeat-one = current track. Clicking cycles through the three modes.
+        float repeatX = textX + 112.0f;
+        boolean repeatHovered = CursorUtil.isInBounds(mouseX, mouseY, repeatX, controlsY, 26.0f, 26.0f);
+        MusicManager.LoopMode loopMode = manager.getLoopMode();
+        String repeatIcon = loopMode == MusicManager.LoopMode.ONE ? "\ue041" : "\ue040";
+        int repeatColor = loopMode == MusicManager.LoopMode.OFF ? 0x66FFFFFF : Theme.accent();
+        this.drawControl(poseStack, repeatX, controlsY, 26.0f, repeatIcon, repeatHovered, false, repeatColor);
+
         float volumeIconX = this.panelX + this.panelWidth - 104.0f;
         float volumeBarX = volumeIconX + 20.0f;
         float volumeBarY = controlsY + 11.0f;
@@ -332,6 +341,11 @@ public class MusicPlayerScreen extends Screen {
 
     private void drawControl(PoseStack poseStack, float x, float y, float size, String icon,
                              boolean hovered, boolean primary) {
+        this.drawControl(poseStack, x, y, size, icon, hovered, primary, 0xBBFFFFFF);
+    }
+
+    private void drawControl(PoseStack poseStack, float x, float y, float size, String icon,
+                             boolean hovered, boolean primary, int idleColor) {
         if (primary) {
             RenderUtil.drawRoundedRect(poseStack, x, y, size, size, size / 2.0f,
                     ColorUtil.withAlpha(Theme.accent(), hovered ? 1.0f : 0.88f));
@@ -343,7 +357,7 @@ public class MusicPlayerScreen extends Screen {
             RenderUtil.drawRoundedRect(poseStack, x, y, size, size, 7.0f, 0x1FFFFFFF);
         }
         FontStore.MATERIAL_20.drawStringCentered(poseStack, icon, x + size / 2.0f,
-                y + (size - FontStore.MATERIAL_20.getFontHeight()) / 2.0f, hovered ? 0xFFFFFFFF : 0xBBFFFFFF);
+                y + (size - FontStore.MATERIAL_20.getFontHeight()) / 2.0f, hovered ? 0xFFFFFFFF : idleColor);
     }
 
     private void drawCover(PoseStack poseStack, Song song, float x, float y, float size, float radius) {
@@ -449,6 +463,15 @@ public class MusicPlayerScreen extends Screen {
         }
         if (CursorUtil.isInBounds((float) mouseX, (float) mouseY, textX + 78.0f, controlsY, 26.0f, 26.0f)) {
             manager.next();
+            return true;
+        }
+        float repeatX = textX + 112.0f;
+        if (CursorUtil.isInBounds((float) mouseX, (float) mouseY, repeatX, controlsY, 26.0f, 26.0f)) {
+            MusicManager.LoopMode nextMode = manager.cycleLoopMode();
+            MusicPlayer module = MusicPlayer.INSTANCE;
+            if (module != null) {
+                module.setLoopModeFromUi(nextMode);
+            }
             return true;
         }
 

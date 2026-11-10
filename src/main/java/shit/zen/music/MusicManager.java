@@ -46,6 +46,16 @@ import shit.zen.render.ResourceLocationWrapper;
  * URLs). Audio is decoded by {@link Mp3Player} (JLayer + SourceDataLine).</p>
  */
 public final class MusicManager extends ClientBase {
+    /** What happens when the current track reaches its end. */
+    public enum LoopMode {
+        /** Play the queue once and stop after the last track. */
+        OFF,
+        /** Wrap around to the first track after the last one. */
+        ALL,
+        /** Replay the current track forever. */
+        ONE
+    }
+
     public static final String DEFAULT_API = "https://met.liiiu.cn/meting/api";
     public static final String DEFAULT_SERVER = "netease";
     public static final String DEFAULT_PLAYLIST = "3778678";
@@ -80,6 +90,7 @@ public final class MusicManager extends ClientBase {
     private volatile boolean searching;
     private volatile boolean loadingTrack;
     private volatile String status = "";
+    private volatile LoopMode loopMode = LoopMode.ALL;
 
     private volatile int playlistToken;
     private volatile int searchToken;
@@ -185,6 +196,37 @@ public final class MusicManager extends ClientBase {
 
     public String getStatus() {
         return this.status;
+    }
+
+    public LoopMode getLoopMode() {
+        return this.loopMode;
+    }
+
+    public void setLoopMode(LoopMode mode) {
+        this.loopMode = mode == null ? LoopMode.ALL : mode;
+    }
+
+    /** Accepts the values used by the MusicPlayer "Loop" setting. */
+    public void setLoopMode(String name) {
+        if (name == null) {
+            return;
+        }
+        switch (name.trim().toLowerCase(java.util.Locale.ROOT)) {
+            case "off", "none", "sequential" -> this.loopMode = LoopMode.OFF;
+            case "one", "single", "repeat_one" -> this.loopMode = LoopMode.ONE;
+            default -> this.loopMode = LoopMode.ALL;
+        }
+    }
+
+    /** Advances off -> all -> one -> off and returns the new mode. */
+    public LoopMode cycleLoopMode() {
+        LoopMode next = switch (this.loopMode) {
+            case OFF -> LoopMode.ALL;
+            case ALL -> LoopMode.ONE;
+            case ONE -> LoopMode.OFF;
+        };
+        this.loopMode = next;
+        return next;
     }
 
     public boolean isPlaying() {
@@ -506,8 +548,21 @@ public final class MusicManager extends ClientBase {
         if (list.isEmpty()) {
             return;
         }
+        LoopMode mode = this.loopMode;
+        if (mode == LoopMode.ONE) {
+            Song current = this.currentSong;
+            if (current != null) {
+                this.playSong(current, list);
+                return;
+            }
+        }
         int index = this.currentIndex + 1;
         if (index < 0 || index >= list.size()) {
+            if (mode == LoopMode.OFF) {
+                // End of the queue: keep the last track displayed (pressing play
+                // restarts it) but do not wrap around.
+                return;
+            }
             index = 0;
         }
         this.playSong(list.get(index), list);

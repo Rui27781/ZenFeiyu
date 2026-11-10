@@ -44,6 +44,18 @@ public class MusicPlayer extends Module {
         }
     };
 
+    /**
+     * off = stop after the last track, all = wrap around the queue,
+     * one = repeat the current track. Mirrors the repeat button in the
+     * music screen so both stay in sync through the config.
+     */
+    public final ModeSetting loopSetting = new ModeSetting("Loop", "off", "all", "one") {
+        @Override
+        public void onChanged(String oldValue, String newValue) {
+            MusicManager.getInstance().setLoopMode(newValue);
+        }
+    }.withDefault("all");
+
     public MusicPlayer() {
         super("musicplayer", Category.CLIENT);
         INSTANCE = this;
@@ -55,6 +67,7 @@ public class MusicPlayer extends Module {
             MusicManager manager = MusicManager.getInstance();
             manager.configure(this.apiSetting.getValue(), this.serverSetting.getValue(), this.playlistSetting.getValue());
             manager.setVolume(this.volumeSetting.getValue().floatValue() / 100.0f);
+            manager.setLoopMode(this.loopSetting.getValue());
             manager.loadPlaylistIfEmpty();
             mc.setScreen(new MusicPlayerScreen());
         } finally {
@@ -66,5 +79,13 @@ public class MusicPlayer extends Module {
     public void setVolumeFromUi(float volume) {
         int value = Math.max(0, Math.min(100, Math.round(volume * 100.0f)));
         this.volumeSetting.setValue(value);
+    }
+
+    /** Called by the repeat button so the loop mode is persisted in the config. */
+    public void setLoopModeFromUi(MusicManager.LoopMode mode) {
+        if (mode == null) {
+            return;
+        }
+        this.loopSetting.setValue(mode.name().toLowerCase(java.util.Locale.ROOT));
     }
 }
