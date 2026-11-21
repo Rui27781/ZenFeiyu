@@ -1,6 +1,7 @@
 #include "early_inject.h"
 
 #include "loader.h"
+#include "loader_settings.h"
 #include "manual_map.h"
 
 #include <stdio.h>
@@ -34,6 +35,63 @@ std::wstring image_path_of(DWORD pid) {
     }
     CloseHandle(process);
     return out;
+}
+
+// Environment blocks are a sequence of null-terminated "KEY=VALUE" strings
+// ended by an extra null. Upsert ZENFEIYU_HWID (and surfaces if present in the
+// loader process) so the injected DLL sees the user's toggle even though we
+// otherwise clone the *game* environment.
+void upsert_hwid_env(std::vector<wchar_t>& env) {
+    const bool on = loader_settings::is_hwid_spoof_enabled();
+    const std::wstring kHwid = L"ZENFEIYU_HWID";
+    const std::wstring vHwid = on ? L"1" : L"0";
+
+    // Also forward surfaces if the loader process has it set.
+    wchar_t surfBuf[256] = {0};
+    DWORD surfLen = GetEnvironmentVariableW(L"ZENFEIYU_HWID_SURFACES", surfBuf, 256);
+    const std::wstring kSurf = L"ZENFEIYU_HWID_SURFACES";
+    const std::wstring vSurf = (surfLen > 0 && surfLen < 256) ? std::wstring(surfBuf) : L"wmi";
+
+    auto upsert = [&](const std::wstring& key, const std::wstring& value) {
+        // Drop any existing entry for this key.
+        std::vector<wchar_t> cleaned;
+        cleaned.reserve(env.size() + key.size() + value.size() + 8);
+        size_t i = 0;
+        while (i < env.size()) {
+            if (env[i] == L'\0') { ++i; continue; }
+            size_t start = i;
+            while (i < env.size() && env[i] != L'\0') ++i;
+            std::wstring entry(env.data() + start, i - start);
+            ++i; // skip the null
+            // Compare key part (before '=')
+            size_t eq = entry.find(L'=');
+            std::wstring ek = (eq == std::wstring::npos) ? entry : entry.substr(0, eq);
+            if (_wcsicmp(ek.c_str(), key.c_str()) == 0) {
+                continue; // drop old
+            }
+            cleaned.insert(cleaned.end(), entry.begin(), entry.end());
+            cleaned.push_back(L'\0');
+        }
+        // Append new
+        std::wstring neu = key + L"=" + value;
+        cleaned.insert(cleaned.end(), neu.begin(), neu.end());
+        cleaned.push_back(L'\0');
+        // Ensure double-null terminator
+        if (cleaned.empty() || cleaned.back() != L'\0') cleaned.push_back(L'\0');
+        if (cleaned.size() < 2 || cleaned[cleaned.size() - 2] != L'\0')
+            cleaned.push_back(L'\0');
+        env.swap(cleaned);
+    };
+
+    if (env.empty()) {
+        // No game env available — build a minimal block from the loader's.
+        // CreateProcess with nullptr env would inherit the loader process, which
+        // already has ZENFEIYU_HWID set by SettingsPage; nothing to do.
+        return;
+    }
+
+    upsert(kHwid, vHwid);
+    upsert(kSurf, vSurf);
 }
 
 } // namespace
@@ -72,6 +130,9 @@ std::wstring inject_early(DWORD existing_pid, const std::wstring& command_line,
                L"(process may be protected); not relaunching into a wrong one";
     }
 
+    // Make sure the HWID toggle is visible to the new process / DLL.
+    upsert_hwid_env(env);
+
     const void* dll_data = nullptr;
     size_t dll_size = 0;
     if (!get_embedded_dll(dll_data, dll_size)) {
@@ -86,9 +147,9 @@ std::wstring inject_early(DWORD existing_pid, const std::wstring& command_line,
     si.cb = sizeof si;
     PROCESS_INFORMATION pi{};
 
-    // Hand over the instance's own environment block so the relaunch is a clone
-    // of what the launcher started, not "whatever the loader happens to have".
-    // Falls back to inheriting ours when the block was not readable.
+    // Hand over the instance's own environment block (with HWID vars upserted)
+    // so the relaunch is a clone of what the launcher started. Falls back to
+    // inheriting the loader's environment when the block was not readable.
     if (!CreateProcessW(image.c_str(), cmd.data(), nullptr, nullptr, FALSE,
                         CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT,
                         env.empty() ? nullptr : env.data(),

@@ -2,7 +2,11 @@
 
 #include "InstanceRow.h"
 
+#include <QGuiApplication>
 #include <QLabel>
+#include <QPoint>
+#include <QResizeEvent>
+#include <QScreen>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSet>
@@ -75,7 +79,6 @@ InstanceList::InstanceList(QWidget* parent)
 
 void InstanceList::setInstances(const QVector<Instance>& list) {
     // Compute incoming pid set.
-    adjustRowsForResolution();
     QSet<unsigned long> incoming;
     incoming.reserve(list.size());
     for (const auto& it : list) incoming.insert(it.pid);
@@ -119,9 +122,26 @@ void InstanceList::setInstances(const QVector<Instance>& list) {
     }
 
     setInteractive(interactive_);  // re-apply enabled state on new rows
+    adjustRowHeight();
     updateEmptyState();
 }
 
+// Auto-fit each row height to the screen so the list stays readable and
+// fully visible across resolutions (small laptops -> compact, 4K -> roomy).
+void InstanceList::adjustRowHeight() {
+    QScreen* screen = QGuiApplication::screenAt(mapToGlobal(QPoint(0, 0)));
+    if (!screen) screen = QGuiApplication::primaryScreen();
+    const int screenH = screen ? screen->availableGeometry().height() : 1080;
+    int rowH = 48;
+    if (screenH >= 1440)      rowH = 54;
+    else if (screenH <= 768)  rowH = 42;
+    for (auto* r : rows_) r->setRowHeight(rowH);
+}
+
+void InstanceList::resizeEvent(QResizeEvent* event) {
+    QWidget::resizeEvent(event);
+    adjustRowHeight();
+}
 void InstanceList::setInteractive(bool on) {
     interactive_ = on;
     for (auto* r : rows_) {
@@ -154,38 +174,6 @@ Instance InstanceList::instanceForPid(unsigned long pid) const {
         out.commandLine = r->commandLine();
     }
     return out;
-}
-
-// Auto-adjust row count based on screen resolution
-void InstanceList::adjustRowsForResolution() {
-    // Auto-adjust row count based on screen resolution
-    QScreen* screen = QApplication::screenAt(this->pos());
-    if (!screen) screen = QApplication::primaryScreen();
-    qreal dpi = screen->logicalDotsPerInch();
-    qreal scale = dpi / 96.0;  // Reference DPI
-    
-    // Base row count at 1080p: roughly fit 5 rows in visible area
-    int baseRowCount = 5;
-    // Adjust for DPI scaling
-    int adjustedCount = qCeil(baseRowCount / scale);
-    adjustedCount = qMax(3, qMin(8, adjustedCount));
-    
-    // Hide rows that exceed the visible count
-    int visibleCount = 0;
-    int idx = 1;  // Skip note label at index 0
-    for (auto* r : qAsConst(rows_)) {
-        if (visibleCount >= adjustedCount) {
-            r->setVisible(false);
-        } else {
-            r->setVisible(true);
-            visibleCount++;
-        }
-        idx++;
-    }
-    
-    // Update stretch factor to fill remaining space
-    containerLayout_->setStretch(visibleCount, 1);
-    containerLayout_->setStretch(idx - 1, 0);
 }
 
 void InstanceList::updateEmptyState() {

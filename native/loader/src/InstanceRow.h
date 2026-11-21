@@ -48,6 +48,9 @@ public:
 
     void playEntrance();
 
+    // Adaptive row height, adjusted to screen resolution by InstanceList.
+    void setRowHeight(int h);
+
 signals:
     void injectClicked(unsigned long pid, const QString& title, const QString& commandLine);
 

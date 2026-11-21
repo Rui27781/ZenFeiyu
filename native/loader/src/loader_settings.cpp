@@ -95,7 +95,8 @@ void save_value(const QString& key, const QVariant& value) {
 
 bool is_hwid_spoof_enabled() {
     QVariant v = load_all().value(kKeyHwidSpoof());
-    return v.isValid() && v.toBool();
+    if (!v.isValid()) return true;  // match DLL default
+    return v.toBool();
 }
 
 bool is_native_bypass_enabled() {

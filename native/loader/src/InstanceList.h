@@ -9,6 +9,7 @@
 class QLabel;
 class QScrollArea;
 class QVBoxLayout;
+class QResizeEvent;
 
 namespace loader {
 
@@ -46,6 +47,9 @@ public:
     // already in progress so the user can't queue a second one).
     void setInteractive(bool on);
 
+    // Auto-fit row height to the current screen resolution.
+    void adjustRowHeight();
+
     // Visual ping on the row for the given pid: draws a yellow outline ring
     // that fades out.
     void markInjected(unsigned long pid);
@@ -56,6 +60,9 @@ public:
 
 signals:
     void injectRequested(unsigned long pid, const QString& title, const QString& commandLine);
+
+protected:
+    void resizeEvent(QResizeEvent* event) override;
 
 private:
     void updateEmptyState();

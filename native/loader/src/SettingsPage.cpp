@@ -8,6 +8,8 @@
 #include <QLabel>
 #include <QVBoxLayout>
 
+#include <windows.h>
+
 namespace loader {
 
 namespace {
@@ -27,12 +29,33 @@ const char* kSettingsQss = R"qss(
         font-size: 12px;
     }
 )qss";
+
+// Push the HWID toggle into the loader process environment so that:
+//   1. Native Bypass / Early Inject children inherit ZENFEIYU_HWID
+//   2. The injected DLL (which reads this env once at config()) can honour it
+// Normal inject into an already-running process cannot rewrite that process's
+// environment; the DLL then falls back to its built-in default (enabled + wmi).
+void apply_hwid_env(bool on) {
+    if (on) {
+        SetEnvironmentVariableW(L"ZENFEIYU_HWID", L"1");
+        // Keep the safe default surface set. Users who need more can set
+        // ZENFEIYU_HWID_SURFACES manually before launching the loader.
+        if (GetEnvironmentVariableW(L"ZENFEIYU_HWID_SURFACES", nullptr, 0) == 0) {
+            SetEnvironmentVariableW(L"ZENFEIYU_HWID_SURFACES", L"wmi");
+        }
+    } else {
+        SetEnvironmentVariableW(L"ZENFEIYU_HWID", L"0");
+    }
+}
 } // namespace
 
 SettingsPage::SettingsPage(QWidget* parent)
         : QWidget(parent) {
     setStyleSheet(QString::fromUtf8(kSettingsQss));
     buildUi();
+    // Apply whatever was last saved so Early Inject children see the right value
+    // even if the user never touches the switch this session.
+    apply_hwid_env(loader_settings::is_hwid_spoof_enabled());
 }
 
 bool SettingsPage::hwidSpoofEnabled() const {
@@ -73,22 +96,26 @@ void SettingsPage::buildUi() {
     title->setStyleSheet(QStringLiteral("font-size:18px;font-weight:600;color:#ffffff;"));
     col->addWidget(title);
 
-    // ---- HWID Spoof (default OFF) ----
+    // ---- HWID Spoof ----
+    // The real work lives inside the injected DLL (WMI vtable, optional net/reg
+    // surfaces). This toggle writes settings.json and sets ZENFEIYU_HWID so that
+    // Native Bypass / Early Inject children inherit the preference. Default ON
+    // matches the DLL's own safe default.
     hwidSwitch_ = new PillSwitch(this);
     hwidSwitch_->setChecked(loader_settings::is_hwid_spoof_enabled());
     connect(hwidSwitch_, &PillSwitch::toggled, this, [](bool on) {
         loader_settings::save_value(loader_settings::kKeyHwidSpoof(), on);
+        apply_hwid_env(on);
     });
     col->addWidget(makeToggleRow(
         QStringLiteral("HWID Spoof"),
-        QStringLiteral("Spoofs machine fingerprint surfaces (MachineGuid, volume "
-                       "serial, MAC, computer name). Default OFF."),
+        QStringLiteral("Enables the injected HWID spoof (WMI vtable by default: "
+                       "UUID / disk / board serial). Takes full effect on Native "
+                       "Bypass launches; for already-running instances the DLL "
+                       "uses its built-in default. Default ON."),
         hwidSwitch_, this));
 
-    // Native Bypass: instead of attaching to the running instance, restart it from
-    // its own command line with CREATE_SUSPENDED, map the DLL in while the main
-    // thread is still frozen, then resume. Nothing the game loads afterwards
-    // (an anti-cheat's loader included) can run before the DLL is resident.
+    // Native Bypass
     nativeBypassSwitch_ = new PillSwitch(this);
     nativeBypassSwitch_->setChecked(loader_settings::is_native_bypass_enabled());
     connect(nativeBypassSwitch_, &PillSwitch::toggled, this, [](bool on) {

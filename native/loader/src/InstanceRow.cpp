@@ -1,6 +1,7 @@
-﻿#include "InstanceRow.h"
+#include "InstanceRow.h"
 
 #include <QEasingCurve>
+#include <QtGlobal>
 #include <QEnterEvent>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -120,6 +121,11 @@ void InstanceRow::setEntrance(qreal v) {
     // shift via a property-based geometry: simplest is to update an
     // internal offset that paintEvent honours. We just call update() and
     // let paintEvent read entrance_ to translate / fade.
+}
+
+void InstanceRow::setRowHeight(int h) {
+    setFixedHeight(qBound(38, h, 60));
+    updateGeometry();
 }
 
 void InstanceRow::playEntrance() {

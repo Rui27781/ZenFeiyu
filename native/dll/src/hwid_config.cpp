@@ -1,147 +1,88 @@
 #include "hwid_config.h"
 
-#include <windows.h>
-
+#include <cstdlib>
 #include <cstring>
-#include <cwchar>
-
-#include "openzen.h"
+#include <string>
+#include <windows.h>
 
 namespace hwid {
 
 namespace {
 
-std::wstring temp_ini_path() {
-    wchar_t tmp[MAX_PATH] = {0};
-    if (GetTempPathW(MAX_PATH, tmp) == 0) return std::wstring();
-    return std::wstring(tmp) + L"zenfeiyu_hwid.ini";
-}
+// Defaults chosen for safety / detection resistance:
+//   enabled  = true
+//   surfaces = "wmi"   (vtable only — no executable-byte patches)
+//
+// Optional environment overrides (checked once at first config()):
+//   ZENFEIYU_HWID=0|1|true|false     force enable/disable
+//   ZENFEIYU_HWID_SURFACES=wmi,net   comma-separated surface list
+//   ZENFEIYU_HWID_SEED=<ull>         identity seed (0 = derive from hardware)
+//
+// The loader can set these on itself; Native Bypass / Early Inject children
+// inherit them. Normal inject into an already-running process cannot change
+// the target's environment, so the DLL falls back to these defaults.
 
-// Written on first run so the file exists to be edited, and so the defaults are
-// documented where the user will actually look for them.
-void write_default_ini(const std::wstring& path) {
-    static const wchar_t kBody[] =
-        L"; ZenFeiyu HWID spoof - edit, then restart the game to apply.\n"
-        L"[hwid]\n"
-        L"; 1 = on, 0 = off (0 is the clean baseline for testing)\n"
-        L"enabled=1\n"
-        L"\n"
-        L"; wmi  = UUID / disk serial / board serial\n"
-        L";        via the wbemcomn vtable, so the anticheat reads the fake too\n"
-        L"; net  = MAC address, via an inline hook on GetAdaptersAddresses\n"
-        L"; reg / smbios / disk / wmipx = legacy surfaces, off by default\n"
-        L"surfaces=wmi,net\n"
-        L"\n"
-        L"; 1 = intercept reads instead of writing properties.\n"
-        L"; Switch to 1 if the log shows 'Put rejected ... switching to Get'\n"
-        L"force_get_hook=0\n"
-        L"\n"
-        L"; 1 = log every hook decision\n"
-        L"verbose=0\n";
+constexpr bool kDefaultEnabled = true;
+constexpr unsigned long long kDefaultSeed = 0;
 
-    HANDLE h = CreateFileW(path.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr,
-                           CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (h == INVALID_HANDLE_VALUE) return;
-    const BYTE bom[2] = {0xFF, 0xFE};   // UTF-16LE
-    DWORD written = 0;
-    WriteFile(h, bom, 2, &written, nullptr);
-    WriteFile(h, kBody, static_cast<DWORD>(sizeof(kBody) - sizeof(wchar_t)),
-              &written, nullptr);
-    CloseHandle(h);
-}
-
-std::wstring find_ini() {
-    // %TEMP% first: the loader already drops the jar there, so the whole
-    // client keeps its runtime state in one place.
-    const std::wstring tmp_path = temp_ini_path();
-    if (!tmp_path.empty() &&
-        GetFileAttributesW(tmp_path.c_str()) != INVALID_FILE_ATTRIBUTES) {
-        return tmp_path;
-    }
-    // Fall back to the directory holding this DLL.
-    if (openzen::g_self_module) {
-        wchar_t mod[MAX_PATH] = {0};
-        if (GetModuleFileNameW(openzen::g_self_module, mod, MAX_PATH) != 0) {
-            std::wstring p = mod;
-            const size_t slash = p.find_last_of(L"\\/");
-            if (slash != std::wstring::npos) {
-                p.resize(slash + 1);
-                p += L"zenfeiyu_hwid.ini";
-                if (GetFileAttributesW(p.c_str()) != INVALID_FILE_ATTRIBUTES) return p;
-            }
-        }
-    }
-    // Nothing found: create the documented default so it can be edited.
-    if (!tmp_path.empty()) {
-        write_default_ini(tmp_path);
-        if (GetFileAttributesW(tmp_path.c_str()) != INVALID_FILE_ATTRIBUTES) return tmp_path;
-    }
-    return std::wstring();
-}
-
-std::wstring read_ini_string(const std::wstring& ini, const wchar_t* key,
-                             const wchar_t* fallback) {
-    if (ini.empty()) return fallback;
-    wchar_t buf[512] = {0};
-    GetPrivateProfileStringW(L"hwid", key, fallback, buf,
-                             static_cast<DWORD>(std::size(buf)), ini.c_str());
+std::wstring env_or_empty(const wchar_t* name) {
+    DWORD n = GetEnvironmentVariableW(name, nullptr, 0);
+    if (n == 0) return {};
+    std::wstring buf(n, L'\0');
+    DWORD got = GetEnvironmentVariableW(name, buf.data(), n);
+    if (got == 0 || got >= n) return {};
+    buf.resize(got);
     return buf;
 }
 
-bool read_ini_bool(const std::wstring& ini, const wchar_t* key, bool fallback) {
-    if (ini.empty()) return fallback;
-    return GetPrivateProfileIntW(L"hwid", key, fallback ? 1 : 0, ini.c_str()) != 0;
+bool parse_bool(const std::wstring& s, bool fallback) {
+    if (s.empty()) return fallback;
+    if (s == L"0" || s == L"false" || s == L"FALSE" || s == L"off" || s == L"OFF")
+        return false;
+    if (s == L"1" || s == L"true" || s == L"TRUE" || s == L"on" || s == L"ON")
+        return true;
+    return fallback;
 }
 
-std::wstring env_value(const char* name) {
-    char buf[512] = {0};
-    DWORD n = GetEnvironmentVariableA(name, buf, static_cast<DWORD>(sizeof buf) - 1);
-    if (n == 0 || n >= sizeof buf) return std::wstring();
-    std::wstring w;
-    const size_t len = std::strlen(buf);
-    w.reserve(len);
-    for (size_t i = 0; i < len; ++i) {
-        w.push_back(static_cast<wchar_t>(static_cast<unsigned char>(buf[i])));
-    }
-    return w;
+unsigned long long parse_ull(const std::wstring& s, unsigned long long fallback) {
+    if (s.empty()) return fallback;
+    try {
+        size_t idx = 0;
+        unsigned long long v = std::stoull(s, &idx, 0);
+        if (idx == s.size()) return v;
+    } catch (...) {}
+    return fallback;
 }
 
-Config load() {
+Config make_config() {
     Config c;
-    const std::wstring ini = find_ini();
+    c.enabled = parse_bool(env_or_empty(L"ZENFEIYU_HWID"), kDefaultEnabled);
 
-    if (!ini.empty()) {
-        c.enabled = read_ini_bool(ini, L"enabled", c.enabled);
-        c.surfaces = read_ini_string(ini, L"surfaces", c.surfaces.c_str());
-        c.force_get_hook = read_ini_bool(ini, L"force_get_hook", c.force_get_hook);
-        c.verbose = read_ini_bool(ini, L"verbose", c.verbose);
+    std::wstring surfaces = env_or_empty(L"ZENFEIYU_HWID_SURFACES");
+    if (surfaces.empty()) {
+        // wmi only — no code patches, hardest to detect.
+        c.surfaces = L"wmi";
+    } else {
+        c.surfaces = surfaces;
     }
 
-    // Environment overrides win: handy for a one-off A/B run.
-    const std::wstring env_surfaces = env_value("OPENZEN_HWID_SURFACES");
-    if (!env_surfaces.empty()) c.surfaces = env_surfaces;
-
-    const std::wstring env_off = env_value("OPENZEN_HWID_DISABLE");
-    if (!env_off.empty()) c.enabled = false;
-
-    if (!env_value("OPENZEN_FORCE_GET_HOOK").empty()) c.force_get_hook = true;
-
+    c.force_get_hook = false;
+    c.verbose = false;
+    c.seed = parse_ull(env_or_empty(L"ZENFEIYU_HWID_SEED"), kDefaultSeed);
     return c;
 }
 
 } // namespace
 
 const Config& config() {
-    static const Config c = load();
+    static const Config c = make_config();
     return c;
 }
 
+// Kept for the log line's format string. There is no file any more.
 const std::wstring& config_path() {
-    static const std::wstring p = [] {
-        std::wstring found = find_ini();
-        return found;
-    }();
-    return p;
+    static const std::wstring kNone;
+    return kNone;
 }
 
 bool surface_on(const char* name) {
