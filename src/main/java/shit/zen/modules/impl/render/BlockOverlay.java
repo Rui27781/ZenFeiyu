@@ -18,6 +18,7 @@ import shit.zen.modules.Module;
 import shit.zen.settings.impl.BooleanSetting;
 import shit.zen.settings.impl.ModeSetting;
 import shit.zen.settings.impl.NumberSetting;
+import shit.zen.utils.misc.ClientFieldAccess;
 import shit.zen.utils.render.WorldRenderUtil;
 
 /**
@@ -135,10 +136,10 @@ public class BlockOverlay extends Module {
 
     private float mining() {
         if (!this.breakProgressSetting.getValue() || mc.player == null || mc.gameMode == null
-                || !mc.gameMode.isDestroying() || mc.gameMode.destroyProgress <= 0.0f) {
+                || !mc.gameMode.isDestroying() || ClientFieldAccess.destroyProgress(mc.gameMode) <= 0.0f) {
             return 0.0f;
         }
-        return Mth.clamp(mc.gameMode.destroyProgress, 0.0f, 1.0f);
+        return Mth.clamp(ClientFieldAccess.destroyProgress(mc.gameMode), 0.0f, 1.0f);
     }
 
     @EventTarget

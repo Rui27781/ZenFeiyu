@@ -18,6 +18,7 @@ import shit.zen.settings.impl.BooleanSetting;
 import shit.zen.settings.impl.ModeSetting;
 import shit.zen.settings.impl.NumberSetting;
 import shit.zen.utils.math.Vector2f;
+import shit.zen.utils.misc.ClientFieldAccess;
 import shit.zen.utils.render.ProjectionUtil;
 import shit.zen.utils.render.WorldRenderUtil;
 
@@ -85,11 +86,11 @@ public class BreakProgress extends Module {
         }
         boolean manual = this.showManualSetting.getValue() && mc.options.keyAttack.isDown();
         boolean aura = this.showBedAuraSetting.getValue() && mc.hitResult != null;
-        if (!mc.gameMode.isDestroying() || (!manual && !aura) || mc.gameMode.destroyProgress <= 0.0f) {
+        if (!mc.gameMode.isDestroying() || (!manual && !aura) || ClientFieldAccess.destroyProgress(mc.gameMode) <= 0.0f) {
             this.reset();
             return;
         }
-        float value = Mth.clamp(mc.gameMode.destroyProgress, 0.0f, 1.0f);
+        float value = Mth.clamp(ClientFieldAccess.destroyProgress(mc.gameMode), 0.0f, 1.0f);
         if (this.progress <= 0.0f || value < this.progress) {
             this.startNanos = System.nanoTime();
         }

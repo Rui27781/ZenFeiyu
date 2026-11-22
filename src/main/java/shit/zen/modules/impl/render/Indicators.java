@@ -21,6 +21,7 @@ import shit.zen.event.impl.GameTickEvent;
 import shit.zen.event.impl.Render2DEvent;
 import shit.zen.modules.Category;
 import shit.zen.modules.Module;
+import shit.zen.utils.misc.ClientFieldAccess;
 import shit.zen.utils.render.OverlayUtil;
 import shit.zen.settings.impl.BooleanSetting;
 import shit.zen.settings.impl.ModeSetting;
@@ -116,7 +117,8 @@ public class Indicators extends Module {
 
     private byte kindOf(Entity entity) {
         if (entity instanceof Arrow) {
-            return this.renderArrowsSetting.getValue() && !entity.isOnGround() ? (byte) 1 : 0;
+            return this.renderArrowsSetting.getValue()
+                    && !ClientFieldAccess.arrowInGround((Arrow) entity) ? (byte) 1 : 0;
         }
         if (entity instanceof ThrownEnderpearl) {
             return this.renderEnderPearlsSetting.getValue() ? (byte) 2 : 0;
