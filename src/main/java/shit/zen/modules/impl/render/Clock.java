@@ -97,9 +97,9 @@ public class Clock extends Module {
         int x = (int) (MARGIN + maxX * clamp(this.positionXSetting.getValue().floatValue() / 100.0F));
         int y = (int) (MARGIN + maxY * clamp(this.positionYSetting.getValue().floatValue() / 100.0F));
 
-        if (mc.screen instanceof net.minecraft.client.gui.screens.ChatScreen && mc.mouseHandler.leftDown) {
-            float mouseX = (float) mc.mouseHandler.xpos * screenWidth / mc.getWindow().getWidth();
-            float mouseY = (float) mc.mouseHandler.ypos * screenHeight / mc.getWindow().getHeight();
+        if (mc.screen instanceof net.minecraft.client.gui.screens.ChatScreen && mc.mouseHandler.isLeftPressed()) {
+            float mouseX = (float) mc.mouseHandler.xpos() * screenWidth / mc.getWindow().getWidth();
+            float mouseY = (float) mc.mouseHandler.ypos() * screenHeight / mc.getWindow().getHeight();
             if (!this.dragging && mouseX >= x && mouseX <= x + side && mouseY >= y && mouseY <= y + side) {
                 this.dragging = true;
                 this.dragOffsetX = mouseX - x;

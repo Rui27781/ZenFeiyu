@@ -122,9 +122,9 @@ public class InfoHud extends Module {
         int width = labelWidth + 12 + valueWidth;
         int height = this.rowCount * step;
 
-        if (this.editPositionSetting.getValue() && mc.mouseHandler.leftDown) {
-            float mouseX = (float) mc.mouseHandler.xpos * screenWidth / mc.getWindow().getWidth();
-            float mouseY = (float) mc.mouseHandler.ypos * screenHeight / mc.getWindow().getHeight();
+        if (this.editPositionSetting.getValue() && mc.mouseHandler.isLeftPressed()) {
+            float mouseX = (float) mc.mouseHandler.xpos() * screenWidth / mc.getWindow().getWidth();
+            float mouseY = (float) mc.mouseHandler.ypos() * screenHeight / mc.getWindow().getHeight();
             if (!this.dragging && mouseX >= x - 5 && mouseX <= x + width + 5
                     && mouseY >= y - 5 && mouseY <= y + height + 5) {
                 this.dragging = true;
@@ -160,7 +160,7 @@ public class InfoHud extends Module {
 
     private int accent() {
         if (this.accentSetting.is("Custom")) {
-            return ColorUtil.fromARGB(this.redSetting.getValue().intValue(),
+            return ColorUtil.fromRGB(this.redSetting.getValue().intValue(),
                     this.greenSetting.getValue().intValue(), this.blueSetting.getValue().intValue());
         }
         return ACCENT_DEFAULT;

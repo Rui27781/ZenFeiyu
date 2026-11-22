@@ -116,7 +116,7 @@ public class Indicators extends Module {
 
     private byte kindOf(Entity entity) {
         if (entity instanceof Arrow) {
-            return this.renderArrowsSetting.getValue() && !((Arrow) entity).inGround ? (byte) 1 : 0;
+            return this.renderArrowsSetting.getValue() && !entity.isOnGround() ? (byte) 1 : 0;
         }
         if (entity instanceof ThrownEnderpearl) {
             return this.renderEnderPearlsSetting.getValue() ? (byte) 2 : 0;

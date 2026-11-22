@@ -154,9 +154,9 @@ public class TargetHudPanel extends Module {
         int y = clampInt((int) (screenHeight * this.positionYSetting.getValue().floatValue() / 100.0F - height / 2),
                 2, Math.max(2, screenHeight - height - 2));
 
-        if (this.editPositionSetting.getValue() && mc.mouseHandler.leftDown) {
-            float mouseX = (float) mc.mouseHandler.xpos * screenWidth / mc.getWindow().getWidth();
-            float mouseY = (float) mc.mouseHandler.ypos * screenHeight / mc.getWindow().getHeight();
+        if (this.editPositionSetting.getValue() && mc.mouseHandler.isLeftPressed()) {
+            float mouseX = (float) mc.mouseHandler.xpos() * screenWidth / mc.getWindow().getWidth();
+            float mouseY = (float) mc.mouseHandler.ypos() * screenHeight / mc.getWindow().getHeight();
             if (!this.dragging && mouseX >= x && mouseX <= x + width && mouseY >= y && mouseY <= y + height) {
                 this.dragging = true;
                 this.dragOffsetX = mouseX - x;
@@ -271,7 +271,7 @@ public class TargetHudPanel extends Module {
 
     private int particleColor() {
         if (this.tintSetting.is("Custom")) {
-            return ColorUtil.fromARGB(this.redSetting.getValue().intValue(),
+            return ColorUtil.fromRGB(this.redSetting.getValue().intValue(),
                     this.greenSetting.getValue().intValue(), this.blueSetting.getValue().intValue());
         }
         return ACCENT_DEFAULT;

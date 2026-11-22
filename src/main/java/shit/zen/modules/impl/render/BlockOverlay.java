@@ -135,10 +135,10 @@ public class BlockOverlay extends Module {
 
     private float mining() {
         if (!this.breakProgressSetting.getValue() || mc.player == null || mc.gameMode == null
-                || !mc.gameMode.isDestroying() || mc.player.mineProgress <= 0.0f) {
+                || !mc.gameMode.isDestroying() || mc.gameMode.destroyProgress <= 0.0f) {
             return 0.0f;
         }
-        return Mth.clamp(mc.player.mineProgress, 0.0f, 1.0f);
+        return Mth.clamp(mc.gameMode.destroyProgress, 0.0f, 1.0f);
     }
 
     @EventTarget

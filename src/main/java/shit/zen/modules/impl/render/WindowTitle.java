@@ -12,14 +12,16 @@ import shit.zen.settings.impl.NumberSetting;
  * Animated window title, ported from NeoRaven's {@code client.WindowTitle}.
  *
  * <p>LWJGL 3 replaced {@code Display.setTitle} with {@code GLFW.glfwSetWindowTitle}, so the title
- * is written to the Minecraft window handle instead. The animation itself is unchanged: the prefix
- * stays on screen, the body types out, holds, then deletes one character at a time. ZenFeiyu
+ * is written to the Minecraft window handle instead. GLFW has no title getter, so the original title
+ * is restored from a constant when the module is disabled. The animation itself is unchanged: the
+ * prefix stays on screen, the body types out, holds, then deletes one character at a time. ZenFeiyu
  * branding is kept in the visible text.</p>
  */
 public class WindowTitle extends Module {
     private static final String PREFIX = "Zen";
     private static final String BODY = "Feiyu";
     private static final String RARE_BODY = "Feiyu b2";
+    private static final String ORIGINAL_TITLE = "Minecraft";
 
     private final NumberSetting typeMsSetting = new NumberSetting("Type ms", 120, 20, 400, 10);
     private final NumberSetting holdMsSetting = new NumberSetting("Hold ms", 2000, 250, 6000, 250);
@@ -42,12 +44,8 @@ public class WindowTitle extends Module {
         this.cycleStart = 0L;
         this.lastApplied = 0L;
         this.applied = "";
-        if (this.originalTitle == null && mc != null && mc.getWindow() != null) {
-            try {
-                this.originalTitle = GLFW.glfwGetWindowTitle(mc.getWindow().getWindow());
-            } catch (Throwable ignored) {
-                this.originalTitle = "Minecraft";
-            }
+        if (this.originalTitle == null) {
+            this.originalTitle = ORIGINAL_TITLE;
         }
     }
 

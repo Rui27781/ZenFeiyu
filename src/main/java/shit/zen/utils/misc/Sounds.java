@@ -55,7 +55,7 @@ public final class Sounds extends ClientBase {
                 event = BuiltInRegistries.SOUND_EVENT.get(new ResourceLocation("minecraft:note.pling"));
             }
             if (event == null) {
-                event = SoundEvents.UI_BUTTON_CLICK;
+                event = SoundEvents.UI_BUTTON_CLICK.value();
             }
             // Volume is intentionally applied through pitch only for UI sounds: 1.20.1's UI bus
             // owns its gain, and forcing a per-instance volume made toggles far too loud.

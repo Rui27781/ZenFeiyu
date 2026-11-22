@@ -143,9 +143,9 @@ public class Notifications extends Module {
         int x = (int) (screenWidth * this.positionXSetting.getValue().floatValue() / 100.0F);
         int y = (int) (screenHeight * this.positionYSetting.getValue().floatValue() / 100.0F);
 
-        if (this.editPositionSetting.getValue() && mc.mouseHandler.leftDown) {
-            float mouseX = (float) mc.mouseHandler.xpos * screenWidth / mc.getWindow().getWidth();
-            float mouseY = (float) mc.mouseHandler.ypos * screenHeight / mc.getWindow().getHeight();
+        if (this.editPositionSetting.getValue() && mc.mouseHandler.isLeftPressed()) {
+            float mouseX = (float) mc.mouseHandler.xpos() * screenWidth / mc.getWindow().getWidth();
+            float mouseY = (float) mc.mouseHandler.ypos() * screenHeight / mc.getWindow().getHeight();
             if (!this.dragging && mouseX >= x - 140 && mouseX <= x + 10
                     && mouseY >= y - 5 && mouseY <= y + cardHeight * stackLimit) {
                 this.dragging = true;
@@ -206,7 +206,7 @@ public class Notifications extends Module {
 
     private int accent(int level) {
         if (this.accentSetting.is("Custom")) {
-            return ColorUtil.fromARGB(this.redSetting.getValue().intValue(),
+            return ColorUtil.fromRGB(this.redSetting.getValue().intValue(),
                     this.greenSetting.getValue().intValue(), this.blueSetting.getValue().intValue());
         }
         return LEVEL_COLORS[level >= 0 && level < LEVEL_COLORS.length ? level : LEVEL_INFO];

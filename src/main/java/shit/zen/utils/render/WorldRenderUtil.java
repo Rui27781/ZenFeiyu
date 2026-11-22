@@ -10,6 +10,7 @@ import com.mojang.blaze3d.vertex.VertexFormat;
 import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.phys.Vec3;
 import shit.zen.ClientBase;
 
@@ -40,12 +41,20 @@ public final class WorldRenderUtil extends ClientBase {
 
     /** Body yaw, interpolated; matches the 1.8.9 {@code renderYawOffset} used by NeoRaven. */
     public static float bodyYaw(Entity entity, float partial) {
-        return Mth.rotLerp(partial, entity.yBodyRotO, entity.yBodyRot);
+        if (!(entity instanceof LivingEntity)) {
+            return entity.getYRot();
+        }
+        LivingEntity living = (LivingEntity) entity;
+        return Mth.rotLerp(partial, living.yBodyRotO, living.yBodyRot);
     }
 
     /** Head yaw, interpolated; matches 1.8.9 {@code rotationYawHead}. */
     public static float headYaw(Entity entity, float partial) {
-        return Mth.rotLerp(partial, entity.yHeadRotO, entity.yHeadRot);
+        if (!(entity instanceof LivingEntity)) {
+            return entity.getYRot();
+        }
+        LivingEntity living = (LivingEntity) entity;
+        return Mth.rotLerp(partial, living.yHeadRotO, living.yHeadRot);
     }
 
     /** Head pitch, interpolated. */

@@ -25,7 +25,7 @@ import shit.zen.utils.render.WorldRenderUtil;
  * Mining progress indicator ported from NeoRaven's {@code BreakProgressModule}.
  *
  * <p>The 1.8.9 field reflection for {@code curBlockDamageMP} is replaced by the mapped
- * {@code Player.mineProgress} field. "Show BedAura" is retained for configuration compatibility:
+ * {@code MultiPlayerGameMode.destroyProgress} field. "Show BedAura" is retained for configuration compatibility:
  * BedAura does not exist in this client, so the setting only widens the accepted target to the
  * current hit block while not attacking. The circle mode is drawn from geometry (a segmented ring)
  * instead of the Onyx {@code M3MiningProgress} widget, and the label is rendered in the HUD pass
@@ -85,11 +85,11 @@ public class BreakProgress extends Module {
         }
         boolean manual = this.showManualSetting.getValue() && mc.options.keyAttack.isDown();
         boolean aura = this.showBedAuraSetting.getValue() && mc.hitResult != null;
-        if (!mc.gameMode.isDestroying() || (!manual && !aura) || mc.player.mineProgress <= 0.0f) {
+        if (!mc.gameMode.isDestroying() || (!manual && !aura) || mc.gameMode.destroyProgress <= 0.0f) {
             this.reset();
             return;
         }
-        float value = Mth.clamp(mc.player.mineProgress, 0.0f, 1.0f);
+        float value = Mth.clamp(mc.gameMode.destroyProgress, 0.0f, 1.0f);
         if (this.progress <= 0.0f || value < this.progress) {
             this.startNanos = System.nanoTime();
         }

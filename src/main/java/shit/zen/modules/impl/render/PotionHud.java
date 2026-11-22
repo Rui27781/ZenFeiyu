@@ -186,9 +186,9 @@ public class PotionHud extends Module {
         int x = (int) (screenWidth * this.positionX() / 100.0F);
         int y = (int) (screenHeight * this.positionY() / 100.0F);
 
-        if (this.editPositionSetting.getValue() && mc.mouseHandler.leftDown) {
-            float mouseX = (float) mc.mouseHandler.xpos * screenWidth / mc.getWindow().getWidth();
-            float mouseY = (float) mc.mouseHandler.ypos * screenHeight / mc.getWindow().getHeight();
+        if (this.editPositionSetting.getValue() && mc.mouseHandler.isLeftPressed()) {
+            float mouseX = (float) mc.mouseHandler.xpos() * screenWidth / mc.getWindow().getWidth();
+            float mouseY = (float) mc.mouseHandler.ypos() * screenHeight / mc.getWindow().getHeight();
             if (!this.dragging && mouseX >= x && mouseX <= x + rowWidth && mouseY >= y
                     && mouseY <= y + rowHeight * this.rowCount) {
                 this.dragging = true;

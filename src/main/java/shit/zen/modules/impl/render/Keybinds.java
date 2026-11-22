@@ -107,9 +107,9 @@ public class Keybinds extends Module {
 
         int x = (int) (screenWidth * this.positionXSetting.getValue().floatValue() / 100.0F);
         int y = (int) (screenHeight * this.positionYSetting.getValue().floatValue() / 100.0F);
-        if (this.editPositionSetting.getValue() && mc.mouseHandler.leftDown) {
-            float mouseX = (float) mc.mouseHandler.xpos * screenWidth / mc.getWindow().getWidth();
-            float mouseY = (float) mc.mouseHandler.ypos * screenHeight / mc.getWindow().getHeight();
+        if (this.editPositionSetting.getValue() && mc.mouseHandler.isLeftPressed()) {
+            float mouseX = (float) mc.mouseHandler.xpos() * screenWidth / mc.getWindow().getWidth();
+            float mouseY = (float) mc.mouseHandler.ypos() * screenHeight / mc.getWindow().getHeight();
             if (!this.dragging && mouseX >= x && mouseX <= x + width && mouseY >= y && mouseY <= y + height) {
                 this.dragging = true;
                 this.dragOffsetX = mouseX - x;
@@ -160,7 +160,7 @@ public class Keybinds extends Module {
 
     private int accent() {
         if (this.accentSetting.is("Custom")) {
-            return ColorUtil.fromARGB(this.redSetting.getValue().intValue(),
+            return ColorUtil.fromRGB(this.redSetting.getValue().intValue(),
                     this.greenSetting.getValue().intValue(), this.blueSetting.getValue().intValue());
         }
         return ACCENT_DEFAULT;

@@ -7,6 +7,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.block.BedBlock;
+import net.minecraft.world.level.block.state.properties.BedPart;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
@@ -120,7 +121,7 @@ public class BedESP extends Module {
                     this.scanPos.set(px + dx, y, pz + dz);
                     BlockState state = mc.level.getBlockState(this.scanPos);
                     if (!(state.getBlock() instanceof BedBlock)
-                            || state.getValue(BedBlock.PART) != BedBlock.Part.FOOT) {
+                            || state.getValue(BedBlock.PART) != BedPart.FOOT) {
                         continue;
                     }
                     if (this.bedCount >= MAX_BEDS) {

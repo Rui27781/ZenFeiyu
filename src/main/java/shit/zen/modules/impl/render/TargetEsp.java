@@ -192,7 +192,7 @@ public class TargetEsp extends Module {
             BufferBuilder buffer = WorldRenderUtil.begin(VertexFormat.Mode.QUADS, walls);
             WorldRenderUtil.additiveBlend();
             this.renderRing(buffer, matrix, pos.x, pos.y, pos.z, height,
-                    this.ringPhase + offset, scale, glow, rgb);
+                    (float) (this.ringPhase + offset), scale, glow, rgb);
             WorldRenderUtil.end();
             return;
         }

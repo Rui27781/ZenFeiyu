@@ -109,9 +109,9 @@ public class Keystrokes extends Module {
         int y = clamp((int) (screenHeight * this.positionYSetting.getValue().floatValue() / 100.0F),
                 0, Math.max(0, screenHeight - panelHeight));
 
-        if (this.editPositionSetting.getValue() && mc.mouseHandler.leftDown) {
-            float mouseX = (float) mc.mouseHandler.xpos * screenWidth / mc.getWindow().getWidth();
-            float mouseY = (float) mc.mouseHandler.ypos * screenHeight / mc.getWindow().getHeight();
+        if (this.editPositionSetting.getValue() && mc.mouseHandler.isLeftPressed()) {
+            float mouseX = (float) mc.mouseHandler.xpos() * screenWidth / mc.getWindow().getWidth();
+            float mouseY = (float) mc.mouseHandler.ypos() * screenHeight / mc.getWindow().getHeight();
             if (!this.dragging && mouseX >= x && mouseX <= x + 74 && mouseY >= y && mouseY <= y + panelHeight) {
                 this.dragging = true;
                 this.dragOffsetX = mouseX - x;
@@ -224,7 +224,7 @@ public class Keystrokes extends Module {
     private int accent(long now) {
         String mode = this.colorSetting.getValue();
         if ("Custom".equals(mode)) {
-            return ColorUtil.fromARGB(this.redSetting.getValue().intValue(),
+            return ColorUtil.fromRGB(this.redSetting.getValue().intValue(),
                     this.greenSetting.getValue().intValue(), this.blueSetting.getValue().intValue());
         }
         if ("Rainbow".equals(mode)) {
