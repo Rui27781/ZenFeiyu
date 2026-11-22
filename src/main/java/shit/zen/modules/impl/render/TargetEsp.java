@@ -200,7 +200,7 @@ public class TargetEsp extends Module {
         double startOffset = "Middle".equals(this.startSetting.getValue()) ? height * 0.025 : 0.0;
         double seconds = now / 1.0E9;
         double rightX;
-        double rightY;
+        double rightY = 0.0;
         double rightZ;
         double upX;
         double upY;

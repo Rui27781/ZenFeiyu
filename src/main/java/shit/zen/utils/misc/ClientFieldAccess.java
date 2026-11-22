@@ -2,6 +2,7 @@ package shit.zen.utils.misc;
 
 import java.lang.reflect.Field;
 import net.minecraft.client.multiplayer.MultiPlayerGameMode;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.projectile.AbstractArrow;
 
 /**
@@ -14,6 +15,8 @@ public final class ClientFieldAccess {
     private static boolean destroyProgressResolved;
     private static Field arrowInGround;
     private static boolean arrowInGroundResolved;
+    private static Field entityOnGround;
+    private static boolean entityOnGroundResolved;
 
     private ClientFieldAccess() {
     }
@@ -63,6 +66,22 @@ public final class ClientFieldAccess {
                 // Fall through to the generic flag.
             }
         }
-        return arrow.onGround;
+        if (!entityOnGroundResolved) {
+            entityOnGroundResolved = true;
+            try {
+                entityOnGround = Entity.class.getDeclaredField("onGround");
+                entityOnGround.setAccessible(true);
+            } catch (Throwable ignored) {
+                entityOnGround = null;
+            }
+        }
+        if (entityOnGround != null) {
+            try {
+                return entityOnGround.getBoolean(arrow);
+            } catch (Throwable ignored) {
+                // Nothing else to try.
+            }
+        }
+        return false;
     }
 }
