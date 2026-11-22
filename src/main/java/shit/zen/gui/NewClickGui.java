@@ -18,6 +18,7 @@ import shit.zen.render.FontStore;
 import shit.zen.utils.animation.SmoothAnimationTimer;
 import shit.zen.utils.math.Easings;
 import shit.zen.utils.misc.CursorUtil;
+import shit.zen.utils.misc.GuiI18n;
 import shit.zen.utils.render.ColorUtil;
 import shit.zen.utils.render.RenderUtil;
 
@@ -116,8 +117,13 @@ extends Screen {
         this.themePopup.render(this, guiGraphics, guiGraphics.pose(), mouseX, mouseY, closeProgress, partialTicks);
 
         if (!query.isEmpty() && focusedPanel == null) {
-            FontStore.AXIFORMA_REGULAR_16.drawStringCentered(guiGraphics.pose(), "No modules found",
-                    this.width / 2.0f, 120.0f, ColorUtil.withAlpha(-1, 0.5f * closeProgress));
+            if (GuiI18n.isChinese()) {
+                FontStore.PINGFANG_16.drawStringCentered(guiGraphics.pose(), GuiI18n.translate("No modules found"),
+                        this.width / 2.0f, 120.0f, ColorUtil.withAlpha(-1, 0.5f * closeProgress));
+            } else {
+                FontStore.AXIFORMA_REGULAR_16.drawStringCentered(guiGraphics.pose(), "No modules found",
+                        this.width / 2.0f, 120.0f, ColorUtil.withAlpha(-1, 0.5f * closeProgress));
+            }
         }
     }
 

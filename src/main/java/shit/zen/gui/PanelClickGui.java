@@ -19,12 +19,15 @@ import shit.zen.gui.panel.SettingsPanel;
 import shit.zen.gui.panel.setting.NumberSettingRenderer;
 import shit.zen.modules.Category;
 import shit.zen.modules.Module;
+import shit.zen.render.CustomFont;
 import shit.zen.render.FontPresets;
 import shit.zen.render.FontRenderer;
+import shit.zen.render.FontStore;
 import shit.zen.render.GlHelper;
 import shit.zen.render.Renderer;
 import shit.zen.render.TextGlow;
 import shit.zen.utils.math.LerpUtil;
+import shit.zen.utils.misc.GuiI18n;
 import shit.zen.utils.render.RenderUtil;
 
 public class PanelClickGui
@@ -160,6 +163,18 @@ extends Screen {
         }
         super.render(guiGraphics, mouseX, mouseY, partialTicks);
         guiGraphics.pose().popPose();
+        Module hoveredModule = this.moduleListPanel.getModuleAt(panelX, panelY, mouseX, mouseY, this.currentScale);
+        if (hoveredModule != null && effectiveAlpha > 0.005f) {
+            String description = GuiI18n.description(hoveredModule);
+            if (!description.isEmpty()) {
+                CustomFont tooltipFont = GuiI18n.isChinese() ? FontStore.PINGFANG_12 : FontStore.AXIFORMA_REGULAR_16;
+                float tooltipWidth = tooltipFont.getStringWidth(description);
+                float tooltipHeight = tooltipFont.getFontHeight() + 4.0f;
+                RenderUtil.drawRoundedRect(guiGraphics.pose(), mouseX + 5, mouseY + 5, tooltipWidth + 6.0f, tooltipHeight, 3.0f,
+                        new Color(23, 23, 23, (int)(235.0f * effectiveAlpha)).getRGB());
+                tooltipFont.drawString(guiGraphics.pose(), description, mouseX + 8, mouseY + 6, -1);
+            }
+        }
         this.keybindOverlay.render(guiGraphics, this.width, this.height, overlayScale);
         this.scaleSwitchOverlay.render(guiGraphics, this.width, this.height, overlayScale);
     }

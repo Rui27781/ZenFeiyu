@@ -1,6 +1,7 @@
 package shit.zen.modules.impl.render;
 
 import java.util.List;
+import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.gui.GuiGraphics;
 import shit.zen.ZenClient;
 import shit.zen.event.EventTarget;
@@ -8,11 +9,13 @@ import shit.zen.event.impl.GameTickEvent;
 import shit.zen.event.impl.Render2DEvent;
 import shit.zen.modules.Category;
 import shit.zen.modules.Module;
+import shit.zen.render.FontStore;
 import shit.zen.settings.impl.BooleanSetting;
 import shit.zen.settings.impl.ModeSetting;
 import shit.zen.settings.impl.NumberSetting;
 import shit.zen.utils.render.ColorUtil;
 import shit.zen.utils.render.OverlayUtil;
+import shit.zen.utils.render.RenderUtil;
 
 /**
  * Transient toast stack, ported from NeoRaven's {@code NotificationsModule} / Onyx
@@ -138,7 +141,7 @@ public class Notifications extends Module {
         int screenWidth = graphics.guiWidth();
         int screenHeight = graphics.guiHeight();
         float scale = this.scaleSetting.getValue().floatValue();
-        int cardHeight = Math.max(20, (int) Math.round(34.0F * scale));
+        int cardHeight = Math.max(34, (int) Math.round(40.0F * scale));
         int stackLimit = this.maxStackSetting.getValue().intValue();
         int x = (int) (screenWidth * this.positionXSetting.getValue().floatValue() / 100.0F);
         int y = (int) (screenHeight * this.positionYSetting.getValue().floatValue() / 100.0F);
@@ -182,22 +185,41 @@ public class Notifications extends Module {
                 int tx = x + slide;
                 int ty = y + shown * (cardHeight + 4);
 
-                int titleWidth = mc.font.width(toast.title);
-                int messageWidth = mc.font.width(toast.message);
-                int width = Math.max(96, Math.max(titleWidth, messageWidth) + 20);
+                float titleWidth = FontStore.PINGFANG_16.getStringWidth(toast.title);
+                float messageWidth = FontStore.PINGFANG_12.getStringWidth(toast.message);
+                if (titleWidth <= 0.0F) {
+                    titleWidth = mc.font.width(toast.title);
+                }
+                if (messageWidth <= 0.0F) {
+                    messageWidth = mc.font.width(toast.message);
+                }
+                float width = Math.max(120.0F, Math.max(titleWidth, messageWidth) + 24.0F);
                 int levelColor = this.accent(toast.level);
-                int background = this.frostedSetting.getValue() ? 0x99000000 : 0x7D000000;
-                graphics.fill(tx - width, ty, tx, ty + cardHeight, withAlpha(background, alpha));
-                graphics.fill(tx - 3, ty, tx, ty + cardHeight, withAlpha(levelColor, alpha));
+                float left = tx - width;
+                PoseStack poseStack = event.poseStack();
+
+                RenderUtil.drawShadow(poseStack, left + 1.5F, ty + 2.5F, width - 3.0F, cardHeight, 9,
+                        ColorUtil.fromARGB(0, 0, 0, (int) (110.0F * alpha)));
+                if (this.frostedSetting.getValue()) {
+                    RenderUtil.drawBlurredRect(poseStack, left, ty, width, cardHeight, 6.0F, 12.0F,
+                            0.92F * alpha, 0);
+                }
+                RenderUtil.drawRoundedRect(poseStack, left, ty, width, cardHeight, 6.0F,
+                        ColorUtil.fromARGB(0, 18, 22, (int) (195.0F * alpha)));
+                RenderUtil.drawRoundedRect(poseStack, left + 0.5F, ty + 0.5F, width - 1.0F,
+                        cardHeight - 1.0F, 5.5F, ColorUtil.withAlpha(0xFFFFFFFF, 0.14F * alpha));
+                RenderUtil.drawRoundedRect(poseStack, left + 1.0F, ty + 1.0F, 3.0F,
+                        cardHeight - 2.0F, 1.5F, withAlpha(levelColor, alpha));
 
                 int textColor = withAlpha(0xFFFFFFFF, alpha);
-                int subColor = withAlpha(0xFFDDDDDD, alpha);
-                graphics.drawString(mc.font, toast.title, tx - width + 8, ty + 4, textColor, false);
-                graphics.drawString(mc.font, toast.message, tx - width + 8, ty + 4 + 12, subColor, false);
+                int subColor = withAlpha(0xFFC8D2DA, alpha);
+                double textX = left + 10.0F;
+                FontStore.PINGFANG_16.drawStringWithShadow(poseStack, toast.title, textX, ty + 5.0F, textColor);
+                FontStore.PINGFANG_12.drawStringWithShadow(poseStack, toast.message, textX, ty + 20.0F, subColor);
                 if (this.progressSetting.getValue()) {
-                    int progress = (int) (width * clamp((float) age / (float) toast.hold));
-                    graphics.fill(tx - width, ty + cardHeight - 2, tx - width + progress,
-                            ty + cardHeight, withAlpha(levelColor, alpha));
+                    float progress = width * clamp((float) age / (float) toast.hold);
+                    RenderUtil.drawRoundedRect(poseStack, left, ty + cardHeight - 3.0F, progress, 3.0F,
+                            1.5F, withAlpha(levelColor, alpha));
                 }
                 shown++;
             }

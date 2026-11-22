@@ -6,12 +6,14 @@ import net.minecraft.util.Mth;
 import shit.zen.gui.NewClickGui;
 import shit.zen.gui.newclickgui.CategoryPanel;
 import shit.zen.gui.newclickgui.SettingElement;
+import shit.zen.render.CustomFont;
 import shit.zen.render.FontStore;
 import shit.zen.settings.impl.NumberSetting;
 import shit.zen.utils.animation.SmoothAnimationTimer;
 import shit.zen.utils.math.Easings;
 import shit.zen.utils.math.MathUtil;
 import shit.zen.utils.misc.CursorUtil;
+import shit.zen.utils.misc.GuiI18n;
 import shit.zen.utils.render.ColorUtil;
 import shit.zen.utils.render.RenderUtil;
 
@@ -43,14 +45,15 @@ extends SettingElement<NumberSetting> {
         if (Mth.equal(alpha *= this.visibilityTimer.getValueF(), 0.0f)) {
             return;
         }
-        float nameY = this.y + (this.getHeight() / 2.0f - FontStore.AXIFORMA_REGULAR_14.getFontHeight()) / 2.0f + 1.0f;
-        String name = this.setting.getName();
-        if (FontStore.AXIFORMA_REGULAR_14.getStringWidth(name) > 78.0f) {
-            name = name.substring(0, 10);
+        CustomFont nameFont = GuiI18n.isChinese() ? FontStore.PINGFANG_12 : FontStore.AXIFORMA_REGULAR_14;
+        float nameY = this.y + (this.getHeight() / 2.0f - nameFont.getFontHeight()) / 2.0f + 1.0f;
+        String name = GuiI18n.translateSetting(this.setting.getName());
+        if (nameFont.getStringWidth(name) > 78.0f) {
+            name = name.substring(0, Math.min(10, name.length()));
             name = name + "...";
             this.isTruncated = true;
         }
-        FontStore.AXIFORMA_REGULAR_14.drawString(poseStack, name, this.x + 6.0f, nameY, ColorUtil.withAlpha(-1, alpha * 0.8f));
+        nameFont.drawString(poseStack, name, this.x + 6.0f, nameY, ColorUtil.withAlpha(-1, alpha * 0.8f));
         String valueText = String.format("%.2f", new Object[]{this.setting.getValue().floatValue()});
         FontStore.AXIFORMA_BOLD_13.drawString(poseStack, valueText, this.x + 120.0f - FontStore.AXIFORMA_BOLD_13.getStringWidth(valueText) - 6.0f, nameY, ColorUtil.withAlpha(-1, alpha * 0.92f));
         float progress = this.setting.getValue().floatValue() / this.setting.getMax().floatValue();
@@ -76,7 +79,7 @@ extends SettingElement<NumberSetting> {
         RenderUtil.drawRoundedRect(poseStack, knobX, sliderY - 0.5f, 6.0f, 6.0f, 2.9f, ColorUtil.withAlpha(-1, alpha));
         if (this.isHovered && this.isTruncated) {
             this.parentPanel.setHoveredSettingElement(this);
-            this.parentPanel.setTooltipText(this.setting.getName());
+            this.parentPanel.setTooltipText(GuiI18n.translateSetting(this.setting.getName()));
             this.parentPanel.setShowTooltip(true);
         } else if (this.parentPanel.getHoveredSettingElement() == this) {
             this.parentPanel.setShowTooltip(false);

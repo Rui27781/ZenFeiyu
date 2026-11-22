@@ -4,10 +4,12 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.util.Mth;
 import shit.zen.gui.NewClickGui;
+import shit.zen.render.CustomFont;
 import shit.zen.render.FontStore;
 import shit.zen.utils.animation.SmoothAnimationTimer;
 import shit.zen.utils.math.Easings;
 import shit.zen.utils.misc.CursorUtil;
+import shit.zen.utils.misc.GuiI18n;
 import shit.zen.utils.render.ColorUtil;
 import shit.zen.utils.render.RenderUtil;
 
@@ -56,8 +58,13 @@ extends UIElement {
         RenderUtil.drawRoundedRect(poseStack, this.x + 0.5f, this.y + 0.5f, this.width - 1.0f, this.height - 1.0f, 6.5f,
                 ColorUtil.withAlpha(PANEL_BG_INNER, a));
 
-        FontStore.AXIFORMA_BOLD_16.drawString(poseStack, "Theme", this.x + 10.0f, this.y + 9.0f,
-                ColorUtil.withAlpha(-1, a));
+        if (GuiI18n.isChinese()) {
+            FontStore.PINGFANG_16.drawString(poseStack, GuiI18n.translate("Theme"), this.x + 10.0f, this.y + 9.0f,
+                    ColorUtil.withAlpha(-1, a));
+        } else {
+            FontStore.AXIFORMA_BOLD_16.drawString(poseStack, "Theme", this.x + 10.0f, this.y + 9.0f,
+                    ColorUtil.withAlpha(-1, a));
+        }
         RenderUtil.drawRoundedRect(poseStack, this.x + this.width - 38.0f, this.y + 8.0f, 28.0f, 13.0f, 4.0f,
                 ColorUtil.withAlpha(Theme.accent(), a));
 
@@ -122,8 +129,9 @@ extends UIElement {
     }
 
     private void drawLabel(PoseStack poseStack, String text, float rowY, float alpha) {
-        FontStore.AXIFORMA_REGULAR_14.drawString(poseStack, text, this.x + 10.0f,
-                rowY + (14.0f - FontStore.AXIFORMA_REGULAR_14.getFontHeight()) / 2.0f + 1.0f,
+        CustomFont labelFont = GuiI18n.isChinese() ? FontStore.PINGFANG_12 : FontStore.AXIFORMA_REGULAR_14;
+        labelFont.drawString(poseStack, GuiI18n.translate(text), this.x + 10.0f,
+                rowY + (14.0f - labelFont.getFontHeight()) / 2.0f + 1.0f,
                 ColorUtil.withAlpha(-1, alpha * 0.8f));
     }
 

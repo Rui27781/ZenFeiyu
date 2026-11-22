@@ -12,10 +12,19 @@ import shit.zen.settings.impl.ModeSetting;
 public class ClickGuiModule
 extends Module {
     public static final Logger LOGGER = LogManager.getLogger(ClickGuiModule.class);
+    public static ClickGuiModule INSTANCE;
+
     public final ModeSetting styleSetting = new ModeSetting("Mode", "Old", "Panel", "New").withDefault("Old");
+    public final ModeSetting languageSetting = new ModeSetting("Language", "English", "Chinese").withDefault("English");
 
     public ClickGuiModule() {
         super("ClickGui", Category.RENDER, 344);
+        INSTANCE = this;
+    }
+
+    /** Safe accessor used by the GUI renderers; the module may not exist yet on a fresh install. */
+    public static boolean isChinese() {
+        return INSTANCE != null && INSTANCE.languageSetting != null && INSTANCE.languageSetting.is("Chinese");
     }
 
     @Override

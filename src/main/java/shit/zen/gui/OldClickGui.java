@@ -11,6 +11,12 @@ import shit.zen.gui.legacy.ModuleButton;
 import shit.zen.gui.legacy.SettingComponent;
 import shit.zen.gui.legacy.StringComponent;
 import shit.zen.modules.Category;
+import shit.zen.modules.Module;
+import shit.zen.render.CustomFont;
+import shit.zen.render.FontStore;
+import shit.zen.utils.misc.GuiI18n;
+import shit.zen.utils.render.ColorUtil;
+import shit.zen.utils.render.RenderUtil;
 
 public class OldClickGui
 extends Screen {
@@ -57,6 +63,31 @@ extends Screen {
             categoryPanel.mouseDragged(mouseX, mouseY);
         }
         super.render(guiGraphics, mouseX, mouseY, partialTicks);
+        Module hovered = this.getHoveredModule(mouseX, mouseY);
+        if (hovered == null) {
+            return;
+        }
+        String description = GuiI18n.description(hovered);
+        if (description.isEmpty()) {
+            return;
+        }
+        CustomFont font = GuiI18n.isChinese() ? FontStore.PINGFANG_12 : FontStore.OPENSANS_16;
+        float tooltipWidth = font.getStringWidth(description);
+        float tooltipHeight = font.getFontHeight() + 4.0f;
+        RenderUtil.drawRoundedRect(guiGraphics.pose(), mouseX + 5, mouseY + 5, tooltipWidth + 6.0f, tooltipHeight, 3.0f,
+                ColorUtil.fromARGB(23, 23, 23, 235));
+        font.drawString(guiGraphics.pose(), description, mouseX + 8, mouseY + 6, -1);
+    }
+
+    private Module getHoveredModule(int mouseX, int mouseY) {
+        for (CategoryPanel categoryPanel : this.categoryPanels) {
+            for (ModuleButton moduleButton : categoryPanel.moduleButtons) {
+                if (moduleButton.isHovered(mouseX, mouseY)) {
+                    return moduleButton.module;
+                }
+            }
+        }
+        return null;
     }
 
     public boolean mouseReleased(double mouseX, double mouseY, int button) {

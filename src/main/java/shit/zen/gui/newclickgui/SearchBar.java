@@ -5,10 +5,12 @@ import lombok.Getter;
 import lombok.Setter;
 import net.minecraft.client.gui.GuiGraphics;
 import shit.zen.gui.NewClickGui;
+import shit.zen.render.CustomFont;
 import shit.zen.render.FontStore;
 import shit.zen.utils.animation.SmoothAnimationTimer;
 import shit.zen.utils.math.Easings;
 import shit.zen.utils.misc.CursorUtil;
+import shit.zen.utils.misc.GuiI18n;
 import shit.zen.utils.render.ColorUtil;
 import shit.zen.utils.render.RenderUtil;
 
@@ -53,18 +55,19 @@ extends UIElement {
                 this.y + (this.height - FontStore.MATERIAL_20.getFontHeight()) / 2.0f,
                 ColorUtil.withAlpha(-1, alpha * (this.hovered || this.focused ? 0.9f : 0.65f)));
 
+        CustomFont textFont = GuiI18n.isChinese() ? FontStore.PINGFANG_16 : FontStore.AXIFORMA_REGULAR_16;
         float textX = this.x + 30.0f;
-        float textY = this.y + (this.height - FontStore.AXIFORMA_REGULAR_16.getFontHeight()) / 2.0f;
+        float textY = this.y + (this.height - textFont.getFontHeight()) / 2.0f;
         if (this.query.isEmpty() && !this.focused) {
-            FontStore.AXIFORMA_REGULAR_16.drawString(poseStack, "Search modules...", textX, textY,
+            textFont.drawString(poseStack, GuiI18n.translate("Search modules..."), textX, textY,
                     ColorUtil.withAlpha(-1, alpha * 0.4f));
         } else {
-            FontStore.AXIFORMA_REGULAR_16.drawString(poseStack, this.query, textX, textY,
+            textFont.drawString(poseStack, this.query, textX, textY,
                     ColorUtil.withAlpha(-1, alpha * 0.9f));
             if (this.focused && System.currentTimeMillis() % 1000L < 500L) {
-                float cursorX = textX + FontStore.AXIFORMA_REGULAR_16.getStringWidth(this.query) + 1.0f;
+                float cursorX = textX + textFont.getStringWidth(this.query) + 1.0f;
                 RenderUtil.drawFilledRect(poseStack, cursorX, textY, 1.0f,
-                        FontStore.AXIFORMA_REGULAR_16.getFontHeight(), ColorUtil.withAlpha(-1, alpha));
+                        textFont.getFontHeight(), ColorUtil.withAlpha(-1, alpha));
             }
         }
 

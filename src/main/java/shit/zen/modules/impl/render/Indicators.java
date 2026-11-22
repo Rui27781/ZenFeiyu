@@ -1,7 +1,7 @@
 package shit.zen.modules.impl.render;
 
-import com.mojang.math.Axis;
 import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.math.Axis;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.client.Camera;
@@ -21,18 +21,23 @@ import shit.zen.event.impl.GameTickEvent;
 import shit.zen.event.impl.Render2DEvent;
 import shit.zen.modules.Category;
 import shit.zen.modules.Module;
-import shit.zen.utils.misc.ClientFieldAccess;
-import shit.zen.utils.render.OverlayUtil;
+import shit.zen.render.FontStore;
 import shit.zen.settings.impl.BooleanSetting;
 import shit.zen.settings.impl.ModeSetting;
 import shit.zen.settings.impl.NumberSetting;
+import shit.zen.utils.animation.SmoothAnimationTimer;
+import shit.zen.utils.math.Easings;
+import shit.zen.utils.misc.ClientFieldAccess;
 import shit.zen.utils.render.ColorUtil;
+import shit.zen.utils.render.OverlayUtil;
+import shit.zen.utils.render.RenderUtil;
 
 /**
  * Directional indicators for incoming projectiles, ported from NeoRaven's {@code IndicatorsModule}.
  *
  * <p>Arrows, ender pearls and fireballs are gathered once per tick and drawn as a caret, {@code >}
- * or triangle on a circle around the crosshair, with distance and optional item icon. The vanilla
+ * or triangle on a circle around the crosshair, with distance and optional item icon. The shapes
+ * are rounded capsules on a small glass chip instead of hand-rolled Bresenham lines. The vanilla
  * camera is used for projection instead of the 1.8.9 fixed-function helper, so off-screen targets
  * keep their direction. Two upstream details have no 1.20.1 equivalent here: friend / bot / Hypixel
  * team filtering is dropped (no such services exist in ZenFeiyu), and "Render only threats" uses a
@@ -66,6 +71,8 @@ public class Indicators extends Module {
     private final NumberSetting pearlBlueSetting = new NumberSetting("Ender pearl blue", 255, 0, 255, 1,
             () -> this.itemColorsSetting.getValue());
 
+    private final SmoothAnimationTimer introAnim = new SmoothAnimationTimer();
+
     private final ItemStack arrowIcon = new ItemStack(Items.ARROW);
     private final ItemStack pearlIcon = new ItemStack(Items.ENDER_PEARL);
     private final ItemStack fireballIcon = new ItemStack(Items.FIRE_CHARGE);
@@ -79,8 +86,19 @@ public class Indicators extends Module {
     }
 
     @Override
+    protected void onEnable() {
+        this.resetIntro();
+    }
+
+    @Override
     protected void onDisable() {
         this.tracked.clear();
+        this.resetIntro();
+    }
+
+    private void resetIntro() {
+        this.introAnim.setCurrentValue(0.0);
+        this.introAnim.setToValue(0.0);
     }
 
     @EventTarget
@@ -134,7 +152,15 @@ public class Indicators extends Module {
         if (!this.isEnabled() || !OverlayUtil.canRender() || mc.player == null || mc.level == null || this.tracked.isEmpty()) {
             return;
         }
+        this.introAnim.animate(1.0, 0.22, Easings.EASE_OUT_POW2);
+        this.introAnim.tick();
+        float alpha = Math.max(0.0F, Math.min(1.0F, this.introAnim.getValueF()));
+        if (alpha <= 0.01F) {
+            return;
+        }
+
         GuiGraphics graphics = event.guiGraphics();
+        PoseStack pose = event.poseStack();
         int screenWidth = mc.getWindow().getGuiScaledWidth();
         int screenHeight = mc.getWindow().getGuiScaledHeight();
         float centerX = screenWidth * 0.5F;
@@ -172,24 +198,47 @@ public class Indicators extends Module {
             float py = (float) (centerY + radius * cosine);
             float rotation = (float) (Math.atan2(dy, dx) * 57.29578 + 90.0);
             int color = this.colorFor(kind);
+            int shapeColor = Indicators.alphaColor(color, alpha);
 
-            PoseStack pose = event.poseStack();
             pose.pushPose();
             pose.translate(px, py, 0.0F);
             pose.mulPose(Axis.ZP.rotationDegrees(rotation));
+            // Small chip behind every marker: shadow, tinted body, inset rim,
+            // accent capsule and the marker itself.
+            RenderUtil.drawShadow(pose, -10.0F, -10.0F, 20.0F, 20.0F, 5,
+                    ColorUtil.fromARGB(0, 0, 0, (int) (105.0F * alpha)));
+            RenderUtil.drawRoundedRect(pose, -10.0F, -10.0F, 20.0F, 20.0F, 8.0F,
+                    ColorUtil.fromARGB(14, 16, 24, (int) (138.0F * alpha)));
+            RenderUtil.drawRoundedRect(pose, -9.0F, -9.0F, 18.0F, 18.0F, 7.0F,
+                    ColorUtil.fromARGB(255, 255, 255, (int) (32.0F * alpha)));
+            RenderUtil.drawRoundedRect(pose, -5.0F, 7.0F, 10.0F, 2.0F, 1.0F,
+                    Indicators.alphaColor(color, 0.75F * alpha));
             if ("Greater_than".equals(mode)) {
                 pose.scale(1.5F, 1.5F, 1.5F);
-                graphics.drawString(mc.font, ">", -2, -4, color, false);
+                FontStore.AXIFORMA_EXTRABOLD_18.drawStringWithShadow(pose, ">", -2, -4, shapeColor);
             } else if ("Triangle".equals(mode)) {
-                triangle(graphics, color);
+                Indicators.capsule(pose, 0.0F, -6.0F, 6.0F, 5.0F, 2.0F, shapeColor);
+                Indicators.capsule(pose, 6.0F, 5.0F, -6.0F, 5.0F, 2.0F, shapeColor);
+                Indicators.capsule(pose, -6.0F, 5.0F, 0.0F, -6.0F, 2.0F, shapeColor);
             } else {
-                caret(graphics, color);
+                Indicators.capsule(pose, -5.0F, -4.0F, 0.0F, 1.0F, 3.0F, shapeColor);
+                Indicators.capsule(pose, 5.0F, -4.0F, 0.0F, 1.0F, 3.0F, shapeColor);
+                Indicators.capsule(pose, -5.0F, -4.0F, 5.0F, -4.0F, 2.0F, shapeColor);
             }
             pose.popPose();
 
+            String text = this.distanceText[i] == null ? "" : this.distanceText[i];
+            float textWidth = FontStore.AXIFORMA_BOLD_13.getStringWidth(text);
             int textX = (int) (centerX + (radius - 13.0) * sine);
             int textY = (int) (centerY + (radius - 13.0) * cosine) - 4;
-            graphics.drawCenteredString(mc.font, this.distanceText[i] == null ? "" : this.distanceText[i], textX, textY, 0xFFFFFFFF);
+            float pillX = textX - (textWidth + 9.0F) * 0.5F;
+            RenderUtil.drawRoundedRect(pose, pillX, textY - 2.0F, textWidth + 9.0F, 13.0F, 5.0F,
+                    ColorUtil.fromARGB(12, 14, 22, (int) (178.0F * alpha)));
+            RenderUtil.drawRoundedRect(pose, pillX + 1.0F, textY - 1.0F, textWidth + 7.0F, 11.0F, 4.0F,
+                    ColorUtil.fromARGB(255, 255, 255, (int) (34.0F * alpha)));
+            FontStore.AXIFORMA_BOLD_13.drawStringWithShadow(pose, text,
+                    textX - textWidth * 0.5F, textY,
+                    ColorUtil.fromARGB(255, 255, 255, (int) (255.0F * alpha)));
 
             if (this.renderItemSetting.getValue() && kind != 0) {
                 int itemX = (int) (centerX + (radius - 26.0) * sine);
@@ -256,40 +305,29 @@ public class Indicators extends Module {
 
     private final Projected projected = new Projected();
 
-    private static void caret(GuiGraphics graphics, int color) {
-        line(graphics, -5, -4, 0, 1, 3, color);
-        line(graphics, 5, -4, 0, 1, 3, color);
-        line(graphics, -5, -4, 5, -4, 2, color);
-    }
-
-    private static void triangle(GuiGraphics graphics, int color) {
-        line(graphics, 0, -6, 6, 5, 2, color);
-        line(graphics, 6, 5, -6, 5, 2, color);
-        line(graphics, -6, 5, 0, -6, 2, color);
-    }
-
-    private static void line(GuiGraphics graphics, int x1, int y1, int x2, int y2, int thickness, int color) {
-        int dx = Math.abs(x2 - x1);
-        int sx = x1 < x2 ? 1 : -1;
-        int dy = -Math.abs(y2 - y1);
-        int sy = y1 < y2 ? 1 : -1;
-        int error = dx + dy;
-        int half = thickness / 2;
-        while (true) {
-            graphics.fill(x1 - half, y1 - half, x1 - half + thickness, y1 - half + thickness, color);
-            if (x1 == x2 && y1 == y2) {
-                return;
-            }
-            int twice = error * 2;
-            if (twice >= dy) {
-                error += dy;
-                x1 += sx;
-            }
-            if (twice <= dx) {
-                error += dx;
-                y1 += sy;
-            }
+    /** A rotated rounded rect replaces the old per-pixel Bresenham segment. */
+    private static void capsule(PoseStack pose, float x1, float y1, float x2, float y2,
+                                float thickness, int color) {
+        float dx = x2 - x1;
+        float dy = y2 - y1;
+        float length = (float) Math.hypot(dx, dy);
+        if (length < 0.5F) {
+            return;
         }
+        float rotation = (float) Math.atan2(dy, dx) * 57.29578F;
+        pose.pushPose();
+        pose.translate(x1, y1, 0.0F);
+        pose.mulPose(Axis.ZP.rotationDegrees(rotation));
+        RenderUtil.drawRoundedRect(pose, 0.0F, -thickness * 0.5F, length, thickness,
+                thickness * 0.5F, color);
+        pose.popPose();
+    }
+
+    /** Alpha-scaled copy of an ARGB colour without allocating a {@code java.awt.Color}. */
+    private static int alphaColor(int color, float scale) {
+        int alpha = (int) (ColorUtil.getAlpha(color) * Math.max(0.0F, Math.min(1.0F, scale)));
+        return ColorUtil.fromARGB(ColorUtil.getRed(color), ColorUtil.getGreen(color),
+                ColorUtil.getBlue(color), Math.max(0, Math.min(255, alpha)));
     }
 
     private static final class Projected {

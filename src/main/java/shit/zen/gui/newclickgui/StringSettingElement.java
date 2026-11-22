@@ -4,11 +4,13 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.util.Mth;
 import shit.zen.gui.NewClickGui;
+import shit.zen.render.CustomFont;
 import shit.zen.render.FontStore;
 import shit.zen.settings.impl.StringSetting;
 import shit.zen.utils.animation.SmoothAnimationTimer;
 import shit.zen.utils.math.Easings;
 import shit.zen.utils.misc.CursorUtil;
+import shit.zen.utils.misc.GuiI18n;
 import shit.zen.utils.render.ColorUtil;
 import shit.zen.utils.render.RenderUtil;
 
@@ -59,12 +61,13 @@ extends SettingElement<StringSetting> {
             return;
         }
         float focusAmount = this.focusTimer.getValueF();
-        String name = this.setting.getName();
-        if (FontStore.AXIFORMA_REGULAR_14.getStringWidth(name) > 100.0f) {
-            name = name.substring(0, 12) + "...";
+        CustomFont nameFont = GuiI18n.isChinese() ? FontStore.PINGFANG_12 : FontStore.AXIFORMA_REGULAR_14;
+        String name = GuiI18n.translateSetting(this.setting.getName());
+        if (nameFont.getStringWidth(name) > 100.0f) {
+            name = name.substring(0, Math.min(12, name.length())) + "...";
         }
-        FontStore.AXIFORMA_REGULAR_14.drawString(poseStack, name, this.x + 6.0f,
-                this.y + (16.0f - FontStore.AXIFORMA_REGULAR_14.getFontHeight()) / 2.0f + 1.0f,
+        nameFont.drawString(poseStack, name, this.x + 6.0f,
+                this.y + (16.0f - nameFont.getFontHeight()) / 2.0f + 1.0f,
                 ColorUtil.withAlpha(-1, alpha * 0.8f));
 
         float fx = this.fieldX();
@@ -88,7 +91,7 @@ extends SettingElement<StringSetting> {
         }
         if (this.hovered && this.setting.getName().length() > 12) {
             this.parentPanel.setHoveredSettingElement(this);
-            this.parentPanel.setTooltipText(this.setting.getName());
+            this.parentPanel.setTooltipText(GuiI18n.translateSetting(this.setting.getName()));
             this.parentPanel.setShowTooltip(true);
         } else if (this.parentPanel.getHoveredSettingElement() == this) {
             this.parentPanel.setShowTooltip(false);

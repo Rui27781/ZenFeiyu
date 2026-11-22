@@ -29,6 +29,7 @@ import shit.zen.settings.impl.StringSetting;
 import shit.zen.utils.animation.SmoothAnimationTimer;
 import shit.zen.utils.math.Easings;
 import shit.zen.utils.misc.CursorUtil;
+import shit.zen.utils.misc.GuiI18n;
 import shit.zen.utils.render.ColorUtil;
 import shit.zen.utils.render.RenderHelper;
 import shit.zen.utils.render.RenderUtil;
@@ -47,6 +48,7 @@ extends UIElement {
     private final SmoothAnimationTimer hoveredTimer = new SmoothAnimationTimer();
     private final SmoothAnimationTimer expandTimer = new SmoothAnimationTimer();
     private final SmoothAnimationTimer settingsHeightTimer = new SmoothAnimationTimer();
+    private boolean showingTooltip;
     private float posX;
     private float posY;
     private float totalHeight = 20.0f;
@@ -105,22 +107,34 @@ extends UIElement {
         float expandAmount = this.expandTimer.getValueF();
         this.totalHeight = 20.0f + expandAmount * this.settingsHeightTimer.getValueF();
         this.isHovered = this.parentPanel.equals(NewClickGui.focusedPanel) && CursorUtil.isInBounds(mouseX, mouseY, this.posX, this.posY, 120.0f, this.totalHeight);
+        if (this.isHovered) {
+            String description = GuiI18n.description(this.module);
+            this.parentPanel.setTooltipText(description);
+            this.parentPanel.setShowTooltip(!description.isEmpty());
+            this.showingTooltip = !description.isEmpty();
+        } else if (this.showingTooltip) {
+            this.parentPanel.setShowTooltip(false);
+            this.showingTooltip = false;
+        }
         RenderUtil.drawFilledRect(poseStack, this.posX + 1.0f, this.posY + 20.0f, 118.0f, this.totalHeight - 20.0f, ColorUtil.withAlpha(BG_COLOR, expandAmount * alpha));
         float hoverAmount = this.hoveredTimer.getValueF();
         if (hoverAmount > 0.0f) {
             RenderUtil.drawFilledRect(poseStack, this.posX + 0.5f, this.posY, 119.0f, 20.0f, ColorUtil.withAlpha(-1, 0.1f * alpha * hoverAmount));
         }
+        CustomFont nameFont = GuiI18n.isChinese() ? FontStore.PINGFANG_16 : FontStore.AXIFORMA_REGULAR_16;
+        CustomFont boldNameFont = GuiI18n.isChinese() ? FontStore.PINGFANG_16 : FontStore.AXIFORMA_BOLD_16;
+        String nameText = GuiI18n.translateModule(this.module.getName());
         if (1.0f - (enabledAmount = this.enabledTimer.getValueF()) > 0.0f) {
-            this.drawHighlightedName(poseStack, FontStore.AXIFORMA_REGULAR_16, this.module.getName(),
-                    this.posX + 60.0f, this.posY + (20.0f - FontStore.AXIFORMA_REGULAR_16.getFontHeight()) / 2.0f,
+            this.drawHighlightedName(poseStack, nameFont, nameText,
+                    this.posX + 60.0f, this.posY + (20.0f - nameFont.getFontHeight()) / 2.0f,
                     -1, Theme.accent(), alpha * (1.0f - enabledAmount) * 0.6f);
         }
         if (enabledAmount > 0.0f) {
             int moduleAccent = Theme.accentAt(Math.floorMod(this.module.getName().hashCode(), 360));
-            titleWidth = FontStore.AXIFORMA_BOLD_16.getStringWidth(this.module.getName());
-            titleY = this.posY + (20.0f - FontStore.AXIFORMA_BOLD_16.getFontHeight()) / 2.0f;
-            RenderUtil.drawShadow(poseStack, this.posX + (120.0f - titleWidth) / 2.0f, titleY + FontStore.AXIFORMA_BOLD_16.getFontHeight() / 4.0f, titleWidth, FontStore.AXIFORMA_BOLD_16.getFontHeight() / 2.0f, 12, ColorUtil.withAlpha(moduleAccent, alpha * enabledAmount * 0.36f));
-            this.drawHighlightedName(poseStack, FontStore.AXIFORMA_BOLD_16, this.module.getName(),
+            titleWidth = boldNameFont.getStringWidth(nameText);
+            titleY = this.posY + (20.0f - boldNameFont.getFontHeight()) / 2.0f;
+            RenderUtil.drawShadow(poseStack, this.posX + (120.0f - titleWidth) / 2.0f, titleY + boldNameFont.getFontHeight() / 4.0f, titleWidth, boldNameFont.getFontHeight() / 2.0f, 12, ColorUtil.withAlpha(moduleAccent, alpha * enabledAmount * 0.36f));
+            this.drawHighlightedName(poseStack, boldNameFont, nameText,
                     this.posX + 60.0f, titleY, moduleAccent, -1, alpha * enabledAmount);
         }
         if (!this.module.getSettings().isEmpty()) {

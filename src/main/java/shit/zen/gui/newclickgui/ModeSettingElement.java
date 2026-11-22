@@ -6,11 +6,13 @@ import net.minecraft.util.Mth;
 import shit.zen.gui.NewClickGui;
 import shit.zen.gui.newclickgui.CategoryPanel;
 import shit.zen.gui.newclickgui.SettingElement;
+import shit.zen.render.CustomFont;
 import shit.zen.render.FontStore;
 import shit.zen.settings.impl.ModeSetting;
 import shit.zen.utils.animation.SmoothAnimationTimer;
 import shit.zen.utils.math.Easings;
 import shit.zen.utils.misc.CursorUtil;
+import shit.zen.utils.misc.GuiI18n;
 import shit.zen.utils.render.ColorUtil;
 import shit.zen.utils.render.RenderUtil;
 
@@ -47,8 +49,9 @@ extends SettingElement<ModeSetting> {
         if (Mth.equal(alpha *= this.visibilityTimer.getValueF(), 0.0f)) {
             return;
         }
-        float nameY = this.y + (totalHeight / 2.0f - FontStore.AXIFORMA_REGULAR_14.getFontHeight()) / 2.0f + 1.0f;
-        FontStore.AXIFORMA_REGULAR_14.drawString(poseStack, this.setting.getName(), this.x + 6.0f, nameY, ColorUtil.withAlpha(-1, alpha * 0.8f));
+        CustomFont nameFont = GuiI18n.isChinese() ? FontStore.PINGFANG_12 : FontStore.AXIFORMA_REGULAR_14;
+        float nameY = this.y + (totalHeight / 2.0f - nameFont.getFontHeight()) / 2.0f + 1.0f;
+        nameFont.drawString(poseStack, GuiI18n.translateSetting(this.setting.getName()), this.x + 6.0f, nameY, ColorUtil.withAlpha(-1, alpha * 0.8f));
         float openAmount = this.visTimer.getValueF();
         if (openAmount > 0.0f) {
             dropdownHeight = itemHeight + (float) this.setting.getModes().length * itemHeight * openAmount;

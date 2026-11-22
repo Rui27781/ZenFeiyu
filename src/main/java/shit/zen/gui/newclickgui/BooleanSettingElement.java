@@ -8,11 +8,13 @@ import net.minecraft.util.Mth;
 import shit.zen.gui.NewClickGui;
 import shit.zen.gui.newclickgui.CategoryPanel;
 import shit.zen.gui.newclickgui.SettingElement;
+import shit.zen.render.CustomFont;
 import shit.zen.render.FontStore;
 import shit.zen.settings.impl.BooleanSetting;
 import shit.zen.utils.animation.SmoothAnimationTimer;
 import shit.zen.utils.math.Easings;
 import shit.zen.utils.misc.CursorUtil;
+import shit.zen.utils.misc.GuiI18n;
 import shit.zen.utils.render.ColorUtil;
 import shit.zen.utils.render.RenderUtil;
 
@@ -38,9 +40,10 @@ extends SettingElement<BooleanSetting> {
         if (Mth.equal(alpha *= this.visibilityTimer.getValueF(), 0.0f)) {
             return;
         }
-        String name = this.setting.getName();
-        if (FontStore.AXIFORMA_REGULAR_14.getStringWidth(name) > 90.0f) {
-            name = name.substring(0, 10);
+        CustomFont nameFont = GuiI18n.isChinese() ? FontStore.PINGFANG_12 : FontStore.AXIFORMA_REGULAR_14;
+        String name = GuiI18n.translateSetting(this.setting.getName());
+        if (nameFont.getStringWidth(name) > 90.0f) {
+            name = name.substring(0, Math.min(10, name.length()));
             name = name + ELLIPSIS;
             this.isTruncated = true;
         }
@@ -50,7 +53,7 @@ extends SettingElement<BooleanSetting> {
             return;
         }
         poseStack.pushPose();
-        FontStore.AXIFORMA_REGULAR_14.drawString(poseStack, name, this.x + 6.0f, this.y + (this.getHeight() - FontStore.AXIFORMA_REGULAR_14.getFontHeight()) / 2.0f, ColorUtil.withAlpha(-1, alpha * 0.8f));
+        nameFont.drawString(poseStack, name, this.x + 6.0f, this.y + (this.getHeight() - nameFont.getFontHeight()) / 2.0f, ColorUtil.withAlpha(-1, alpha * 0.8f));
         float toggleAmount = this.toggleTimer.getValueF();
         if (toggleAmount > 0.0f) {
             RenderUtil.drawShadow(poseStack, this.x + 120.0f - 20.0f - 6.0f, this.y + (this.getHeight() - 10.0f) / 2.0f, 20.0f, 10.0f, 12, ColorUtil.withAlpha(Theme.accent(), 0.36f * alpha * toggleAmount));
@@ -63,7 +66,7 @@ extends SettingElement<BooleanSetting> {
         poseStack.popPose();
         if (this.isHovered && this.isTruncated) {
             this.parentPanel.setHoveredSettingElement(this);
-            this.parentPanel.setTooltipText(this.setting.getName());
+            this.parentPanel.setTooltipText(GuiI18n.translateSetting(this.setting.getName()));
             this.parentPanel.setShowTooltip(true);
         } else if (this.parentPanel.getHoveredSettingElement() == this) {
             this.parentPanel.setShowTooltip(false);

@@ -15,11 +15,13 @@ import shit.zen.gui.newclickgui.SettingElement;
 import shit.zen.gui.newclickgui.UIElement;
 import shit.zen.modules.Category;
 import shit.zen.modules.Module;
+import shit.zen.render.CustomFont;
 import shit.zen.render.FontStore;
 import shit.zen.render.StencilHelper;
 import shit.zen.utils.animation.SmoothAnimationTimer;
 import shit.zen.utils.math.Easings;
 import shit.zen.utils.misc.CursorUtil;
+import shit.zen.utils.misc.GuiI18n;
 import shit.zen.utils.render.ColorUtil;
 import shit.zen.utils.render.RenderHelper;
 import shit.zen.utils.render.RenderUtil;
@@ -130,7 +132,9 @@ extends UIElement {
         StencilHelper.beginRead(true);
         RenderUtil.drawGradientH(poseStack, this.posX, this.posY, 120.0f, 1.0f, ColorUtil.withAlpha(Theme.shimmer(100L), alpha), ColorUtil.withAlpha(Theme.shimmer(2000L), alpha));
         StencilHelper.end();
-        FontStore.AXIFORMA_EXTRABOLD_18.drawString(poseStack, this.category.displayName, this.posX + 8.0f, this.posY + (20.0f - FontStore.AXIFORMA_EXTRABOLD_18.getFontHeight()) / 2.0f + 3.0f, ColorUtil.withAlpha(-1, alpha));
+        CustomFont titleFont = GuiI18n.isChinese() ? FontStore.PINGFANG_16 : FontStore.AXIFORMA_EXTRABOLD_18;
+        String titleText = GuiI18n.translateCategory(this.category.name());
+        titleFont.drawString(poseStack, titleText, this.posX + 8.0f, this.posY + (20.0f - titleFont.getFontHeight()) / 2.0f + 3.0f, ColorUtil.withAlpha(-1, alpha));
         float scrollOffset = this.scrollTimer.getValueF();
         float elementY = this.posY + 20.0f - scrollOffset;
         StencilHelper.beginWrite(false);
@@ -152,10 +156,12 @@ extends UIElement {
         StencilHelper.end();
         float tooltipAmount = this.tooltipTimer.getValueF();
         if (tooltipAmount > 0.0f) {
-            float tooltipWidth = FontStore.AXIFORMA_REGULAR_16.getStringWidth(this.tooltipText);
-            RenderUtil.drawShadow(poseStack, mouseX + 5, mouseY + 5, tooltipWidth + 6.0f, FontStore.AXIFORMA_REGULAR_16.getFontHeight() + 4.0f, 12, ColorUtil.withAlpha(BG_COLOR, alpha * tooltipAmount * 0.66f));
-            RenderUtil.drawRoundedRect(poseStack, mouseX + 5, mouseY + 5, tooltipWidth + 6.0f, FontStore.AXIFORMA_REGULAR_16.getFontHeight() + 4.0f, 3.0f, ColorUtil.withAlpha(BG_COLOR, alpha * tooltipAmount));
-            FontStore.AXIFORMA_REGULAR_16.drawString(poseStack, this.tooltipText, mouseX + 5 + 3, mouseY + 5 + 1, ColorUtil.withAlpha(-1, alpha * tooltipAmount));
+            CustomFont tooltipFont = GuiI18n.isChinese() ? FontStore.PINGFANG_12 : FontStore.AXIFORMA_REGULAR_16;
+            float tooltipWidth = tooltipFont.getStringWidth(this.tooltipText);
+            float tooltipHeight = tooltipFont.getFontHeight() + 4.0f;
+            RenderUtil.drawShadow(poseStack, mouseX + 5, mouseY + 5, tooltipWidth + 6.0f, tooltipHeight, 12, ColorUtil.withAlpha(BG_COLOR, alpha * tooltipAmount * 0.66f));
+            RenderUtil.drawRoundedRect(poseStack, mouseX + 5, mouseY + 5, tooltipWidth + 6.0f, tooltipHeight, 3.0f, ColorUtil.withAlpha(BG_COLOR, alpha * tooltipAmount));
+            tooltipFont.drawString(poseStack, this.tooltipText, mouseX + 5 + 3, mouseY + 5 + 1, ColorUtil.withAlpha(-1, alpha * tooltipAmount));
         }
         RenderHelper.popPose(poseStack);
     }

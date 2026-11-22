@@ -20,6 +20,7 @@ import shit.zen.render.Rectangle;
 import shit.zen.render.Renderer;
 import shit.zen.render.TextGlow;
 import shit.zen.utils.math.LerpUtil;
+import shit.zen.utils.misc.GuiI18n;
 import shit.zen.utils.render.RenderUtil;
 
 public class ModuleListPanel
@@ -238,12 +239,16 @@ extends ClientBase {
                 if (!animating) {
                     this.updateModuleHover(module, panelX, (int)drawY, mouseX, mouseY, scale);
                 }
-                FontRenderer moduleFont = module.isEnabled() ? FontPresets.axiformaBold(16.0f * scale) : FontPresets.axiformaRegular(16.0f * scale);
-                String moduleName = module.getName();
+                FontRenderer moduleFont;
+                if (GuiI18n.isChinese()) {
+                    moduleFont = FontPresets.pingfang(16.0f * scale);
+                } else {
+                    moduleFont = module.isEnabled() ? FontPresets.axiformaBold(16.0f * scale) : FontPresets.axiformaRegular(16.0f * scale);
+                }
+                String moduleName = GuiI18n.translateModule(module.getName());
                 if (this.searchResults != null) {
-                    String categorySuffix = module.getCategory().name().substring(1).toLowerCase();
-                    char categoryInitial = module.getCategory().name().charAt(0);
-                    moduleName = moduleName + " (" + categoryInitial + categorySuffix + ")";
+                    String categorySuffix = GuiI18n.translateCategory(module.getCategory().name());
+                    moduleName = moduleName + " (" + categorySuffix + ")";
                 }
                 if (module.isEnabled()) {
                     int textColor = this.applyAlpha(-1, alpha);
@@ -406,6 +411,37 @@ extends ClientBase {
         int panelY = originY + marginY + (int)(23.0f * scale);
         int panelHeight = baseSize - 2 * marginX - (int)(20.0f * scale);
         return mouseX >= panelX && mouseX <= panelX + panelWidth && mouseY >= panelY + headerHeight && mouseY <= panelY + panelHeight;
+    }
+
+    /**
+     * Row under the cursor, using the same geometry as {@link #onMouseClick}.
+     * Used by the screen to draw a description tooltip without changing the
+     * existing right-click selection state.
+     */
+    public Module getModuleAt(int originX, int originY, int mouseX, int mouseY, float scale) {
+        List<Module> modules = this.searchResults != null ? this.searchResults : this.currentModules;
+        if (modules == null) {
+            return null;
+        }
+        int marginX = (int)(20.0f * scale);
+        int marginY = (int)(20.0f * scale);
+        int baseSize = (int)(400.0f * scale);
+        int headerHeight = (int)(30.0f * scale);
+        int panelX = originX + marginX - (int)(8.0f * scale);
+        int panelY = originY + marginY + (int)(23.0f * scale);
+        int panelHeight = baseSize - 2 * marginX - (int)(20.0f * scale);
+        if (mouseY < panelY + headerHeight || mouseY > panelY + panelHeight) {
+            return null;
+        }
+        int rowY = panelY + headerHeight + Math.round(8.0f * scale);
+        for (Module module : modules) {
+            int adjustedRowY = (int)((float)rowY - this.scrollOffset);
+            if (this.isMouseOverModule(module, panelX, adjustedRowY, mouseX, mouseY, scale)) {
+                return module;
+            }
+            rowY += Math.round(18.0f * scale);
+        }
+        return null;
     }
 
     public Module getHoveredModule() {

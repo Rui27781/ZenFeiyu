@@ -14,6 +14,7 @@ import shit.zen.gui.legacy.NumberComponent;
 import shit.zen.gui.legacy.SettingComponent;
 import shit.zen.gui.legacy.StringComponent;
 import shit.zen.modules.Module;
+import shit.zen.render.CustomFont;
 import shit.zen.render.FontStore;
 import shit.zen.settings.Setting;
 import shit.zen.settings.impl.BooleanSetting;
@@ -23,6 +24,7 @@ import shit.zen.settings.impl.NumberSetting;
 import shit.zen.settings.impl.StringSetting;
 import shit.zen.utils.animation.SmoothAnimationTimer;
 import shit.zen.utils.math.Easings;
+import shit.zen.utils.misc.GuiI18n;
 import shit.zen.utils.render.ColorUtil;
 import shit.zen.utils.render.RenderUtil;
 
@@ -125,24 +127,25 @@ public class ModuleButton {
         int rowHeight = this.panel.rowHeight + (this.yOffset == 0 ? 0 : 1);
         RenderUtil.drawBlurredRect(poseStack, this.panel.x, rowY, this.panel.width, rowHeight, 4.0f, 6.0f, 0.9f, 0);
         RenderUtil.drawFilledRect(poseStack, this.panel.x, rowY, this.panel.width, rowHeight, new Color(21, 21, 21, bgAlpha).getRGB());
-        String name = this.module.getName();
+        CustomFont nameFont = GuiI18n.isChinese() ? FontStore.PINGFANG_16 : FontStore.OPENSANS_16;
+        String name = GuiI18n.translateModule(this.module.getName());
         // Narrow panels (8 categories on small GUI scales) would otherwise let
         // long module names spill into the neighbouring panel.
         float maxNameWidth = Math.max(12.0f, (float)this.panel.width - 8.0f);
-        if (FontStore.OPENSANS_16.getStringWidth(name) > maxNameWidth) {
+        if (nameFont.getStringWidth(name) > maxNameWidth) {
             StringBuilder builder = new StringBuilder();
-            for (char c : name.toCharArray()) {
-                if (FontStore.OPENSANS_16.getStringWidth(builder.toString() + c + "..") > maxNameWidth) {
+            for (int i = 0; i < name.length(); ++i) {
+                if (nameFont.getStringWidth(builder.toString() + name.charAt(i) + "..") > maxNameWidth) {
                     break;
                 }
-                builder.append(c);
+                builder.append(name.charAt(i));
             }
             name = builder + "..";
         }
-        float nameWidth = FontStore.OPENSANS_16.getStringWidth(name);
+        float nameWidth = nameFont.getStringWidth(name);
         float nameX = (float)this.panel.x + (float)this.panel.width / 2.0f - nameWidth / 2.0f;
-        float nameY = (float)(this.panel.y + this.yOffset) + (float)this.panel.rowHeight / 2.0f - FontStore.OPENSANS_16.getFontHeight() / 2.0f;
-        FontStore.OPENSANS_16.drawStringWithShadow(poseStack, name, nameX, nameY, this.module.isEnabled() ? ColorUtil.fromARGB(138, 180, 248, 255) : -1);
+        float nameY = (float)(this.panel.y + this.yOffset) + (float)this.panel.rowHeight / 2.0f - nameFont.getFontHeight() / 2.0f;
+        nameFont.drawStringWithShadow(poseStack, name, nameX, nameY, this.module.isEnabled() ? ColorUtil.fromARGB(138, 180, 248, 255) : -1);
         if (!this.module.getSettings().isEmpty()) {
             poseStack.pushPose();
             expandedHeight = this.panel.x + this.panel.width - 15;

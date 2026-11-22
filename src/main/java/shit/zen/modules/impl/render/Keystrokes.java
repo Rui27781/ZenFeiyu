@@ -1,30 +1,36 @@
 package shit.zen.modules.impl.render;
 
+import com.mojang.blaze3d.vertex.PoseStack;
 import java.awt.Color;
 import net.minecraft.client.KeyMapping;
-import net.minecraft.client.gui.GuiGraphics;
 import org.lwjgl.glfw.GLFW;
 import shit.zen.event.EventTarget;
 import shit.zen.event.impl.GameTickEvent;
 import shit.zen.event.impl.Render2DEvent;
+import shit.zen.gui.newclickgui.Theme;
 import shit.zen.modules.Category;
 import shit.zen.modules.Module;
+import shit.zen.render.FontStore;
 import shit.zen.settings.impl.BooleanSetting;
 import shit.zen.settings.impl.ModeSetting;
 import shit.zen.settings.impl.NumberSetting;
+import shit.zen.utils.animation.SmoothAnimationTimer;
+import shit.zen.utils.math.Easings;
 import shit.zen.utils.render.ColorUtil;
 import shit.zen.utils.render.OverlayUtil;
+import shit.zen.utils.render.RenderUtil;
 
 /**
  * WASD / click indicators, ported from NeoRaven's {@code client.Keystrokes}.
  *
- * <p>The upstream {@code Gui.drawRect} boxes are drawn with {@link GuiGraphics#fill}, and the
- * {@code Keyboard.isKeyDown} polls became GLFW key-state reads using the actual bound keycode from
- * {@link KeyMapping}. Press shading and text fade are kept, including the six-colour palette and
- * the rainbow option. CPS labels are produced by a small fixed ring buffer of click timestamps:
- * the rising edge is sampled during the HUD pass (without consuming the click) and formatted once
- * per tick, so drawing allocates nothing. "Edit position" replaces the upstream dedicated editor
- * screen with click-drag repositioning, and "Custom" plus the three RGB sliders extend the palette.</p>
+ * <p>The upstream {@code Gui.drawRect} boxes are now layered glass key cards on one frosted panel,
+ * and the {@code Keyboard.isKeyDown} polls became GLFW key-state reads using the actual bound
+ * keycode from {@link KeyMapping}. Press shading and text fade are kept, including the six-colour
+ * palette and the rainbow option. CPS labels are produced by a small fixed ring buffer of click
+ * timestamps: the rising edge is sampled during the HUD pass (without consuming the click) and
+ * formatted once per tick, so drawing allocates nothing. "Edit position" replaces the upstream
+ * dedicated editor screen with click-drag repositioning, and "Custom" plus the three RGB sliders
+ * extend the palette.</p>
  */
 public class Keystrokes extends Module {
     public static Keystrokes INSTANCE;
@@ -52,6 +58,8 @@ public class Keystrokes extends Module {
     private final NumberSetting positionYSetting = new NumberSetting("Position Y", 0.0, 0.0, 100.0, 0.01);
     private final BooleanSetting editPositionSetting = new BooleanSetting("Edit position", false);
 
+    private final SmoothAnimationTimer introAnim = new SmoothAnimationTimer();
+
     private final boolean[] down = new boolean[6];
     private final long[] changed = new long[6];
     private final long[] leftClicks = new long[CLICK_WINDOW];
@@ -71,6 +79,21 @@ public class Keystrokes extends Module {
     public Keystrokes() {
         super("Keystrokes", Category.RENDER);
         INSTANCE = this;
+    }
+
+    @Override
+    protected void onEnable() {
+        this.resetIntro();
+    }
+
+    @Override
+    protected void onDisable() {
+        this.resetIntro();
+    }
+
+    private void resetIntro() {
+        this.introAnim.setCurrentValue(0.0);
+        this.introAnim.setToValue(0.0);
     }
 
     @EventTarget
@@ -100,9 +123,16 @@ public class Keystrokes extends Module {
         long now = System.currentTimeMillis();
         sampleClicks(now);
 
-        GuiGraphics graphics = event.guiGraphics();
-        int screenWidth = graphics.guiWidth();
-        int screenHeight = graphics.guiHeight();
+        this.introAnim.animate(1.0, 0.22, Easings.EASE_OUT_POW2);
+        this.introAnim.tick();
+        float alpha = Math.max(0.0F, Math.min(1.0F, this.introAnim.getValueF()));
+        if (alpha <= 0.01F) {
+            return;
+        }
+
+        PoseStack pose = event.poseStack();
+        int screenWidth = event.guiGraphics().guiWidth();
+        int screenHeight = event.guiGraphics().guiHeight();
         int panelHeight = this.showMouseSetting.getValue() ? 74 : 50;
         int x = clamp((int) (screenWidth * this.positionXSetting.getValue().floatValue() / 100.0F),
                 0, Math.max(0, screenWidth - 74));
@@ -132,6 +162,19 @@ public class Keystrokes extends Module {
         int accent = this.accent(now);
         long window = mc.getWindow().getWindow();
         boolean outline = this.outlineSetting.getValue();
+        int accentColor = Keystrokes.alphaColor(Theme.accent(), alpha);
+        int keyAccent = Keystrokes.alphaColor(accent, alpha);
+
+        // One frosted panel for the module, with the same layered treatment as the other HUD cards.
+        RenderUtil.drawShadow(pose, x, y, 74, panelHeight, 9,
+                ColorUtil.fromARGB(0, 0, 0, (int) (142.0F * alpha)));
+        RenderUtil.drawBlurredRect(pose, x, y, 74, panelHeight, 9.0F, 8.0F, 0.86F * alpha, 0);
+        RenderUtil.drawRoundedRect(pose, x, y, 74, panelHeight, 9.0F,
+                ColorUtil.fromARGB(16, 18, 26, (int) (178.0F * alpha)));
+        RenderUtil.drawRoundedRect(pose, x + 1, y + 1, 72, panelHeight - 2, 8.0F,
+                ColorUtil.fromARGB(255, 255, 255, (int) (42.0F * alpha)));
+        RenderUtil.drawRoundedRect(pose, x + 12, y + panelHeight - 3, 50, 2.5F, 1.25F, accentColor);
+
         for (int i = 0; i < 6; i++) {
             if (i >= 4 && !this.showMouseSetting.getValue()) {
                 continue;
@@ -155,28 +198,33 @@ public class Keystrokes extends Module {
 
             int bx = x + OFFSET_X[i];
             int by = y + OFFSET_Y[i];
-            int right = bx + WIDTHS[i];
-            int bottom = by + 22;
-            graphics.fill(bx, by, right, bottom, 0x78000000 | (shade << 16) | (shade << 8) | shade);
+            int width = WIDTHS[i];
+
+            int tone = Math.max(12, shade >> 1);
+            RenderUtil.drawShadow(pose, bx, by, width, 22, 4,
+                    ColorUtil.fromARGB(0, 0, 0, (int) (96.0F * alpha)));
+            RenderUtil.drawRoundedRect(pose, bx, by, width, 22, 5.0F,
+                    ColorUtil.fromARGB(tone, tone, Math.min(255, tone + 3), (int) (176.0F * alpha)));
+            RenderUtil.drawRoundedRect(pose, bx + 1, by + 1, width - 2, 20, 4.0F,
+                    ColorUtil.fromARGB(255, 255, 255,
+                            (int) ((16.0F + shade * 0.10F) * alpha)));
             if (outline) {
-                graphics.fill(bx, by, right, by + 1, accent);
-                graphics.fill(bx, bottom - 1, right, bottom, accent);
-                graphics.fill(bx, by, bx + 1, bottom, accent);
-                graphics.fill(right - 1, by, right, bottom, accent);
+                RenderUtil.drawRoundedRect(pose, bx + 4, by + 19, width - 8, 2.5F, 1.25F, keyAccent);
             }
             int r = (int) (((accent >> 16) & 0xFF) * textFade);
             int g = (int) (((accent >> 8) & 0xFF) * textFade);
             int b = (int) ((accent & 0xFF) * textFade);
-            int textColor = ColorUtil.fromARGB(r, g, b, 255);
-            graphics.drawString(mc.font, NAMES[i], bx + 8, by + 8, textColor, false);
+            int textColor = ColorUtil.fromARGB(r, g, b, (int) (255.0F * alpha));
+            FontStore.AXIFORMA_BOLD_16.drawStringWithShadow(pose, NAMES[i], bx + 7, by + 6, textColor);
 
             if (i >= 4 && this.showCpsSetting.getValue()) {
                 String cps = i == 4 ? this.leftCpsText : this.rightCpsText;
-                int width = mc.font.width(cps);
-                event.poseStack().pushPose();
-                event.poseStack().scale(0.5F, 0.5F, 1.0F);
-                graphics.drawString(mc.font, cps, (bx + 17) * 2 - width / 2, (by + 14) * 2, textColor, false);
-                event.poseStack().popPose();
+                float cpsWidth = FontStore.AXIFORMA_BOLD_13.getStringWidth(cps);
+                pose.pushPose();
+                pose.scale(0.5F, 0.5F, 1.0F);
+                FontStore.AXIFORMA_BOLD_13.drawStringWithShadow(pose, cps,
+                        (bx + 17) * 2 - cpsWidth * 0.5F, (by + 14) * 2, textColor);
+                pose.popPose();
             }
         }
     }
@@ -228,10 +276,11 @@ public class Keystrokes extends Module {
                     this.greenSetting.getValue().intValue(), this.blueSetting.getValue().intValue());
         }
         if ("Rainbow".equals(mode)) {
-            return Color.HSBtoRGB((now % 3750L) / 3750.0F, 1.0F, 1.0F);
+            return Color.HSBtoRGB((now % 3750L) / 3750.0F, 1.0F, 1.0F) | 0xFF000000;
         }
         int index = indexOf(PALETTE, mode);
-        return index >= 0 && index < PALETTE_COLORS.length ? PALETTE_COLORS[index] : 0xFFFFFF;
+        int rgb = index >= 0 && index < PALETTE_COLORS.length ? PALETTE_COLORS[index] : 0xFFFFFF;
+        return rgb | 0xFF000000;
     }
 
     private static int indexOf(String[] values, String target) {
@@ -249,5 +298,12 @@ public class Keystrokes extends Module {
 
     private static float clamp(float value, float min, float max) {
         return value < min ? min : Math.min(value, max);
+    }
+
+    /** Alpha-scaled copy of an ARGB colour without allocating a {@code java.awt.Color}. */
+    private static int alphaColor(int color, float scale) {
+        int alpha = (int) (ColorUtil.getAlpha(color) * Math.max(0.0F, Math.min(1.0F, scale)));
+        return ColorUtil.fromARGB(ColorUtil.getRed(color), ColorUtil.getGreen(color),
+                ColorUtil.getBlue(color), Math.max(0, Math.min(255, alpha)));
     }
 }

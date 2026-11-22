@@ -18,6 +18,7 @@ import shit.zen.render.StencilHelper;
 import shit.zen.render.TextGlow;
 import shit.zen.settings.Setting;
 import shit.zen.utils.math.LerpUtil;
+import shit.zen.utils.misc.GuiI18n;
 import shit.zen.utils.render.RenderUtil;
 
 public class SettingsPanel
@@ -161,7 +162,7 @@ extends ClientBase {
                     } else {
                         String description = this.getModuleDescription(bodyModule);
                         if (description != null && !description.isEmpty()) {
-                            FontRenderer descFont = FontPresets.axiformaRegular(12.0f * scale);
+                            FontRenderer descFont = GuiI18n.isChinese() ? FontPresets.pingfang(12.0f * scale) : FontPresets.axiformaRegular(12.0f * scale);
                             this.renderWrappedText(description, panelX + (int)(10.0f * scale), panelY + headerHeight + (int)(10.0f * scale), panelWidth - (int)(20.0f * scale), descFont, -5592406, bodyAlpha, scale);
                         }
                     }
@@ -261,13 +262,25 @@ extends ClientBase {
         RenderUtil.drawRoundedRect(guiGraphics.pose(), knobX, knobY, overlayColor, overlayColor, (float)overlayColor / 2.0f, this.applyAlpha(-1, alpha));
     }
 
+    private String[] splitWrappedWords(String text) {
+        if (!GuiI18n.isChinese()) {
+            return text.split(" ");
+        }
+        String[] characters = new String[text.length()];
+        for (int i = 0; i < text.length(); ++i) {
+            characters[i] = String.valueOf(text.charAt(i));
+        }
+        return characters;
+    }
+
     private int renderWrappedText(String text, int x, int y, int maxWidth, FontRenderer fontRenderer, int textColor, float alpha, float scale) {
-        String[] words = text.split(" ");
+        String separator = GuiI18n.isChinese() ? "" : " ";
+        String[] words = this.splitWrappedWords(text);
         StringBuilder line = new StringBuilder();
         int currentY = y;
         int lineHeight = (int)(16.0f * scale);
         for (String word : words) {
-            String candidate = line.length() == 0 ? word : line + " " + word;
+            String candidate = line.length() == 0 ? word : line + separator + word;
             float candidateWidth = GlHelper.getStringWidth(candidate, fontRenderer);
             if (candidateWidth > (float)maxWidth && line.length() > 0) {
                 GlHelper.drawText(line.toString(), x, currentY, fontRenderer, this.applyAlpha(textColor, alpha));
@@ -284,11 +297,7 @@ extends ClientBase {
     }
 
     private String getModuleDescription(Module module) {
-        try {
-            return "This module provides " + module.getName().toLowerCase() + " functionality.";
-        } catch (Exception exception) {
-            return "No description available.";
-        }
+        return GuiI18n.description(module);
     }
 
     private void calculateTotalHeight(Module module, float scale) {
@@ -307,7 +316,7 @@ extends ClientBase {
         } else {
             String description = this.getModuleDescription(module);
             if (description != null && !description.isEmpty()) {
-                FontRenderer fontRenderer = FontPresets.axiformaRegular(12.0f * scale);
+                FontRenderer fontRenderer = GuiI18n.isChinese() ? FontPresets.pingfang(12.0f * scale) : FontPresets.axiformaRegular(12.0f * scale);
                 this.totalContentHeight = this.calcWrappedTextHeight(description, (int)(385.0f * scale), fontRenderer, scale);
             } else {
                 this.totalContentHeight = 0.0f;
@@ -319,13 +328,14 @@ extends ClientBase {
         if (text == null || text.isEmpty()) {
             return 0;
         }
-        String[] words = text.split(" ");
+        String separator = GuiI18n.isChinese() ? "" : " ";
+        String[] words = this.splitWrappedWords(text);
         StringBuilder line = new StringBuilder();
         int lines = 1;
         int lineHeight = (int)(16.0f * scale);
         for (String word : words) {
             String candidate;
-            String dup = candidate = line.length() == 0 ? word : line + " " + word;
+            String dup = candidate = line.length() == 0 ? word : line + separator + word;
             if (GlHelper.getStringWidth(candidate, fontRenderer) > (float)maxWidth && line.length() > 0) {
                 ++lines;
                 line = new StringBuilder(word);
