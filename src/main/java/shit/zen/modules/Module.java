@@ -10,7 +10,9 @@ import shit.zen.ZenClient;
 import shit.zen.hud.ModuleListHud;
 import shit.zen.modules.Category;
 import shit.zen.modules.KeyBind;
+import shit.zen.modules.impl.client.ToggleSounds;
 import shit.zen.settings.Setting;
+import shit.zen.utils.misc.Sounds;
 
 public abstract class Module
 extends ClientBase {
@@ -76,6 +78,11 @@ extends ClientBase {
         } else {
             this.onDisable();
             ZenClient.getInstance().getEventBus().unregister(this);
+        }
+        // ToggleSounds plays its own click from onEnable/onDisable so the sound is heard even when
+        // the module is being switched off (when the master check would otherwise skip it).
+        if (!(this instanceof ToggleSounds)) {
+            Sounds.toggle(enabled);
         }
     }
 

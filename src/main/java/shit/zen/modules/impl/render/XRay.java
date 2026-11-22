@@ -8,6 +8,7 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.Tesselator;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import java.awt.Color;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -24,9 +25,13 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.Vec3i;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientboundBlockUpdatePacket;
+import net.minecraft.network.protocol.game.ClientboundForgetLevelChunkPacket;
+import net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket;
 import net.minecraft.network.protocol.game.ClientboundSectionBlocksUpdatePacket;
+import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
@@ -50,9 +55,10 @@ import shit.zen.settings.impl.NumberSetting;
 import lombok.EqualsAndHashCode;
 import shit.zen.utils.game.PlayerUtil;
 import shit.zen.utils.misc.ChatUtil;
+import shit.zen.utils.misc.PacketUtil;
 
 /**
- * XRay — ore locator with two visual layers:
+ * XRay — ore locator with three visual layers:
  * <ul>
  *     <li><b>True see-through</b>: when this module is enabled, {@link shit.zen.patch.BlockPatch}
  *         hooks {@code Block.shouldRenderFace} and renders only the target blocks (the rest of the
@@ -63,6 +69,11 @@ import shit.zen.utils.misc.ChatUtil;
  *         ore veins, scores them to reject anti-cheat "fake" ores, and draws wireframe boxes plus
  *         on-screen tracers. A "blind scan" additionally tracks block-update packets so ores can be
  *         surfaced even outside the rendered chunk set.</li>
+ *     <li><b>Protocol probe</b> (ported from TrueSight): anti-xray only disguises whole chunk
+ *         packets, while single-block/section update packets always carry the real block. This layer
+ *         sends cheap abort-break actions at reachable lattice points so the server broadcasts the
+ *         real blocks around them, then renders <em>only</em> the ores the server itself confirmed.
+ *         That makes the green probe boxes a fake-ore-free subset of everything else on screen.</li>
  * </ul>
  */
 public class XRay extends Module {
@@ -82,6 +93,10 @@ public class XRay extends Module {
     private final NumberSetting altSearchRadiusSetting = new NumberSetting("Alternative Search Radius", 5, 1, 10, 1);
     private final BooleanSetting blindScanSetting = new BooleanSetting("Blind Scan", true);
     private final NumberSetting blindRenderRangeSetting = new NumberSetting("Blind Render Range", 32, 8, 1024, 4, this.blindScanSetting::getValue);
+    private final BooleanSetting probeSetting = new BooleanSetting("Protocol Probe", true);
+    private final NumberSetting probeRadiusSetting = new NumberSetting("Probe Radius", 6, 1, 10, 1, this.probeSetting::getValue);
+    private final NumberSetting probeBatchSetting = new NumberSetting("Probe Batch", 40, 5, 200, 5, this.probeSetting::getValue);
+    private final NumberSetting probeIntervalSetting = new NumberSetting("Probe Interval", 250, 50, 2000, 50, this.probeSetting::getValue);
     private final NumberSetting minVeinSizeSetting = new NumberSetting("Minimum Vein Size", 1, 1, 10, 1, this.antiFakeOreSetting::getValue);
     private final BooleanSetting diamondSetting = new BooleanSetting("Diamond", true);
     private final BooleanSetting emeraldSetting = new BooleanSetting("Emerald", true);
@@ -115,6 +130,37 @@ public class XRay extends Module {
     private Matrix4f projectionMatrix;
     private final Map<String, ChunkState> chunkStateCache = new ConcurrentHashMap<>();
     private static final Direction[] DIRECTIONS = Direction.values();
+
+    // ===== Protocol probe state (written by the packet thread, read by the client thread) =====
+    /** Server-confirmed real target ores, keyed by position. This is the fake-ore-free display set. */
+    private final Map<BlockPos, BlockState> probeOres = new ConcurrentHashMap<>();
+    /** Positions the server has actually sent an update for (cumulative, invalidated on chunk reload). */
+    private final Set<BlockPos> probeRevealed = ConcurrentHashMap.newKeySet();
+    /** Per-position probe coverage counter; once it hits the cap the position is left alone. */
+    private final Map<BlockPos, Integer> probeAttempts = new ConcurrentHashMap<>();
+    /** Lattice points probed in the current round, used to classify reply distance. */
+    private final Set<BlockPos> probeRoundTargets = ConcurrentHashMap.newKeySet();
+    private final ArrayDeque<BlockPos> probeQueue = new ArrayDeque<>();
+    private boolean probeAwaitingReply = false;
+    private int probeCooldownTicks = 0;
+    /** Server update-radius guess: 2 (24 blocks) until proven to be 1 (6 face neighbours). */
+    private int probeRevealRadius = 2;
+    private volatile boolean probeRadiusConfirmed = false;
+    private volatile int probeHitDist1 = 0;
+    private volatile int probeHitDist2 = 0;
+    private Level probeLevel = null;
+
+    /** Eye-to-block-center hard cap the server accepts for interaction packets (4.5 + 1.0 buffer). */
+    private static final double PROBE_REACH = 5.5;
+    private static final int PROBE_MAX_ATTEMPTS = 2;
+    private static final int PROBE_REPLY_WAIT_TICKS = 2;
+    private static final long PROBE_BATCH_SLEEP_MS = 100L;
+    private static final int PROBE_RADIUS1_EVIDENCE = 20;
+    private static final Color PROBE_COLOR = new Color(120, 255, 0);
+    /** Offsets revealed by a radius-2 server update (Manhattan distance 1..2). */
+    private static final List<Vec3i> PROBE_BALL_2 = buildProbeBall(2);
+    /** Offsets revealed by a radius-1 server update (the 6 face neighbours). */
+    private static final List<Vec3i> PROBE_BALL_1 = buildProbeBall(1);
     private static final Set<Block> OVERWORLD_HOST_BLOCKS = Set.of(
             Blocks.STONE,
             Blocks.ANDESITE,
@@ -174,6 +220,8 @@ public class XRay extends Module {
         this.modelviewMatrix = null;
         this.projectionMatrix = null;
         this.chunkStateCache.clear();
+        this.probeLevel = null;
+        this.clearProbeState();
         this.generationId++;
     }
 
@@ -206,6 +254,7 @@ public class XRay extends Module {
                 }
             });
         }
+        this.tickProbe();
     }
 
     @EventTarget
@@ -228,6 +277,7 @@ public class XRay extends Module {
                 }
             });
         }
+        this.handleProbePacket(packet);
     }
 
     private void resetForNewWorld() {
@@ -258,6 +308,9 @@ public class XRay extends Module {
         if (!this.foundBlocks.isEmpty()) {
             double rangeSq = Math.pow(this.scanRangeSetting.getValue().doubleValue(), 2.0);
             for (Map.Entry<BlockPos, Block> entry : this.foundBlocks.entrySet()) {
+                if (this.probeSetting.getValue() && this.probeOres.containsKey(entry.getKey())) {
+                    continue;
+                }
                 if (entry.getKey().distSqr(mc.player.blockPosition()) <= rangeSq) {
                     this.renderBlock(poseStack, entry.getKey(), entry.getValue().defaultBlockState(), cameraPos);
                 }
@@ -266,17 +319,37 @@ public class XRay extends Module {
         if (this.blindScanSetting.getValue() && !this.blindScanBlocks.isEmpty()) {
             double blindRangeSq = Math.pow(this.blindRenderRangeSetting.getValue().doubleValue(), 2.0);
             this.blindScanBlocks.forEach((key, state) -> {
-                if (this.isEnabledOreBlock(state.getBlock())) {
-                    BlockPos pos = key.toBlockPos();
-                    if (pos.distSqr(mc.player.blockPosition()) <= blindRangeSq) {
-                        this.renderBlock(poseStack, pos, state, cameraPos);
-                    }
+                if (!this.isEnabledOreBlock(state.getBlock())) {
+                    return;
+                }
+                BlockPos pos = key.toBlockPos();
+                if (this.probeSetting.getValue() && this.probeOres.containsKey(pos)) {
+                    return;
+                }
+                if (pos.distSqr(mc.player.blockPosition()) <= blindRangeSq) {
+                    this.renderBlock(poseStack, pos, state, cameraPos);
                 }
             });
+        }
+        if (this.probeSetting.getValue() && !this.probeOres.isEmpty()) {
+            double probeRangeSq = Math.pow(this.scanRangeSetting.getValue().doubleValue(), 2.0);
+            BlockPos playerPos = mc.player.blockPosition();
+            for (Map.Entry<BlockPos, BlockState> entry : this.probeOres.entrySet()) {
+                if (entry.getKey().distSqr(playerPos) <= probeRangeSq) {
+                    this.renderProbeBlock(poseStack, entry.getKey(), cameraPos);
+                }
+            }
         }
         RenderSystem.enableCull();
         RenderSystem.enableDepthTest();
         RenderSystem.disableBlend();
+    }
+
+    private void renderProbeBlock(PoseStack poseStack, BlockPos pos, Vec3 cameraPos) {
+        poseStack.pushPose();
+        poseStack.translate(pos.getX() - cameraPos.x, pos.getY() - cameraPos.y, pos.getZ() - cameraPos.z);
+        this.drawWireBox(poseStack, new AABB(0.0, 0.0, 0.0, 1.0, 1.0, 1.0), PROBE_COLOR);
+        poseStack.popPose();
     }
 
     private void renderBlock(PoseStack poseStack, BlockPos pos, BlockState state, Vec3 cameraPos) {
@@ -418,10 +491,15 @@ public class XRay extends Module {
         return block != null && (this.isEnabledOreBlock(block) || this.isSpecialBlock(block));
     }
 
+    /** Target set for the protocol probe: the same blocks the ESP layer is allowed to draw. */
+    private boolean isProbeTarget(Block block) {
+        return this.isXrayVisible(block);
+    }
+
     @EventTarget
     public void onRender2D(Render2DEvent event) {
         if (ZenClient.isReady()
-                && (!this.foundBlocks.isEmpty() || !this.blindScanBlocks.isEmpty())
+                && (!this.foundBlocks.isEmpty() || !this.blindScanBlocks.isEmpty() || !this.probeOres.isEmpty())
                 && this.tracersSetting.getValue()
                 && this.modelviewMatrix != null
                 && this.projectionMatrix != null) {
@@ -486,16 +564,30 @@ public class XRay extends Module {
         double rangeSq = Math.pow(this.scanRangeSetting.getValue().doubleValue(), 2.0);
         Vec3 eyePos = mc.player.getEyePosition(1.0F);
         for (Map.Entry<BlockPos, Block> entry : this.foundBlocks.entrySet()) {
+            if (this.probeSetting.getValue() && this.probeOres.containsKey(entry.getKey())) {
+                continue;
+            }
             this.renderSingleTracer(entry.getKey(), entry.getValue().defaultBlockState(), eyePos, rangeSq, cameraPos,
-                    buffer, poseStack, centerX, centerY, screenWidth, screenHeight);
+                    buffer, poseStack, centerX, centerY, screenWidth, screenHeight, null);
         }
         if (this.blindScanSetting.getValue()) {
             double blindRangeSq = Math.pow(this.blindRenderRangeSetting.getValue().doubleValue(), 2.0);
             for (Map.Entry<BlockKey, BlockState> entry : this.blindScanBlocks.entrySet()) {
-                if (this.isEnabledOreBlock(entry.getValue().getBlock())) {
-                    this.renderSingleTracer(entry.getKey().toBlockPos(), entry.getValue(), eyePos, blindRangeSq, cameraPos,
-                            buffer, poseStack, centerX, centerY, screenWidth, screenHeight);
+                if (!this.isEnabledOreBlock(entry.getValue().getBlock())) {
+                    continue;
                 }
+                BlockPos pos = entry.getKey().toBlockPos();
+                if (this.probeSetting.getValue() && this.probeOres.containsKey(pos)) {
+                    continue;
+                }
+                this.renderSingleTracer(pos, entry.getValue(), eyePos, blindRangeSq, cameraPos,
+                        buffer, poseStack, centerX, centerY, screenWidth, screenHeight, null);
+            }
+        }
+        if (this.probeSetting.getValue()) {
+            for (Map.Entry<BlockPos, BlockState> entry : this.probeOres.entrySet()) {
+                this.renderSingleTracer(entry.getKey(), entry.getValue(), eyePos, rangeSq, cameraPos,
+                        buffer, poseStack, centerX, centerY, screenWidth, screenHeight, PROBE_COLOR);
             }
         }
         tesselator.end();
@@ -505,7 +597,7 @@ public class XRay extends Module {
 
     private void renderSingleTracer(BlockPos pos, BlockState state, Vec3 eyePos, double rangeSq, Vec3 cameraPos,
                                     BufferBuilder buffer, PoseStack poseStack, float centerX, float centerY,
-                                    float screenWidth, float screenHeight) {
+                                    float screenWidth, float screenHeight, Color overrideColor) {
         Vec3 center = Vec3.atCenterOf(pos);
         if (center.subtract(eyePos).lengthSqr() > rangeSq) {
             return;
@@ -517,7 +609,7 @@ public class XRay extends Module {
         float screenX = projected.x;
         float screenY = projected.y;
         boolean onScreen = projected.z > 0.0F;
-        Color color = this.getBlockColor(state.getBlock());
+        Color color = overrideColor != null ? overrideColor : this.getBlockColor(state.getBlock());
         if (color == null) {
             return;
         }
@@ -577,6 +669,262 @@ public class XRay extends Module {
             t = Math.min(t, -centerY / dy);
         }
         return new Vector3f(centerX + t * dx, centerY + t * dy, 0.0F);
+    }
+
+    // ===== Protocol probe: make the server reveal real blocks, then trust only those =====
+
+    private static List<Vec3i> buildProbeBall(int radius) {
+        List<Vec3i> ball = new ArrayList<>();
+        for (BlockPos pos : BlockPos.betweenClosed(-radius, -radius, -radius, radius, radius, radius)) {
+            int dist = Math.abs(pos.getX()) + Math.abs(pos.getY()) + Math.abs(pos.getZ());
+            if (dist >= 1 && dist <= radius) {
+                ball.add(pos.immutable());
+            }
+        }
+        return List.copyOf(ball);
+    }
+
+    private static int probeTicks(long millis) {
+        return (int) Math.max(1L, millis / 50L);
+    }
+
+    private List<Vec3i> probeBall() {
+        return this.probeRevealRadius == 1 ? PROBE_BALL_1 : PROBE_BALL_2;
+    }
+
+    /**
+     * Sparse lattice covering every block with a probed ball. Radius 2 uses
+     * {@code x + 3y + 8z ≡ 0 (mod 16)}; radius 1 uses {@code x + 2y + 3z ≡ 0 (mod 7)}.
+     */
+    private boolean isProbeLatticePoint(BlockPos pos) {
+        if (this.probeRevealRadius == 1) {
+            return Math.floorMod(pos.getX() + 2 * pos.getY() + 3 * pos.getZ(), 7) == 0;
+        }
+        return Math.floorMod(pos.getX() + 3 * pos.getY() + 8 * pos.getZ(), 16) == 0;
+    }
+
+    /** Same reach test the server applies: eye to block centre within 4.5 + 1.0 blocks. */
+    private boolean isProbeReachable(BlockPos pos) {
+        return mc.player != null
+                && mc.player.getEyePosition().distanceToSqr(Vec3.atCenterOf(pos)) <= PROBE_REACH * PROBE_REACH;
+    }
+
+    private void tickProbe() {
+        if (!this.probeSetting.getValue()) {
+            if (this.probeLevel != null) {
+                this.probeLevel = null;
+                this.clearProbeState();
+            }
+            return;
+        }
+        if (mc.player == null || mc.level == null) {
+            return;
+        }
+        if (this.probeLevel != mc.level) {
+            this.probeLevel = mc.level;
+            this.clearProbeState();
+        }
+        if (this.probeCooldownTicks > 0) {
+            this.probeCooldownTicks--;
+            return;
+        }
+        if (!this.probeQueue.isEmpty()) {
+            this.sendProbeBatch();
+            return;
+        }
+        if (this.probeAwaitingReply) {
+            this.probeAwaitingReply = false;
+            this.probeCooldownTicks = probeTicks(this.probeIntervalSetting.getValue().longValue());
+            return;
+        }
+        // Never fight real mining input.
+        if (mc.options.keyAttack.isDown()) {
+            return;
+        }
+        this.detectProbeRadius();
+        List<BlockPos> targets = this.planProbeTargets();
+        this.probeQueue.addAll(targets);
+        this.probeRoundTargets.clear();
+        this.probeRoundTargets.addAll(targets);
+        this.probeHitDist1 = 0;
+        this.probeHitDist2 = 0;
+        this.probeAwaitingReply = true;
+    }
+
+    private void sendProbeBatch() {
+        int batch = this.probeBatchSetting.getValue().intValue();
+        for (int i = 0; i < batch && !this.probeQueue.isEmpty(); i++) {
+            PacketUtil.send(new ServerboundPlayerActionPacket(
+                    ServerboundPlayerActionPacket.Action.ABORT_DESTROY_BLOCK, this.probeQueue.poll(), Direction.UP));
+        }
+        this.probeCooldownTicks = this.probeQueue.isEmpty()
+                ? PROBE_REPLY_WAIT_TICKS
+                : probeTicks(PROBE_BATCH_SLEEP_MS);
+    }
+
+    /** Enough replies in one round pin down whether the server updates 24 blocks or only 6. */
+    private void detectProbeRadius() {
+        if (this.probeRadiusConfirmed) {
+            return;
+        }
+        if (this.probeHitDist2 > 0) {
+            this.probeRadiusConfirmed = true;
+            return;
+        }
+        if (this.probeHitDist1 < PROBE_RADIUS1_EVIDENCE) {
+            return;
+        }
+        this.probeRadiusConfirmed = true;
+        this.probeRevealRadius = 1;
+    }
+
+    /**
+     * Reachable lattice points cover the whole area with one packet per 16 blocks; the greedy pass
+     * then fills the rim where the lattice point itself is out of reach.
+     */
+    private List<BlockPos> planProbeTargets() {
+        int radius = this.probeRadiusSetting.getValue().intValue();
+        BlockPos origin = mc.player.blockPosition();
+        List<BlockPos> reachable = new ArrayList<>();
+        Set<BlockPos> uncovered = new HashSet<>();
+        for (BlockPos cursor : BlockPos.betweenClosed(
+                origin.offset(-radius, -radius, -radius), origin.offset(radius, radius, radius))) {
+            if (!this.isProbeReachable(cursor)) {
+                continue;
+            }
+            BlockPos pos = cursor.immutable();
+            reachable.add(pos);
+            if (mc.level.getBlockState(pos).isAir() || this.probeRevealed.contains(pos)) {
+                continue;
+            }
+            if (this.probeAttempts.getOrDefault(pos, 0) < PROBE_MAX_ATTEMPTS) {
+                uncovered.add(pos);
+            }
+        }
+        if (uncovered.isEmpty()) {
+            return List.of();
+        }
+        Set<BlockPos> reachableSet = new HashSet<>(reachable);
+        List<BlockPos> targets = new ArrayList<>();
+        for (BlockPos pos : reachable) {
+            if (!this.isProbeLatticePoint(pos) || this.probeRevealGain(pos, uncovered) == 0) {
+                continue;
+            }
+            targets.add(pos);
+            this.markProbeCovered(uncovered, pos);
+        }
+        for (BlockPos pos : new ArrayList<>(uncovered)) {
+            if (!uncovered.contains(pos)) {
+                continue;
+            }
+            BlockPos best = this.bestProbeSenderFor(pos, reachableSet, uncovered);
+            if (best == null) {
+                continue;
+            }
+            targets.add(best);
+            this.markProbeCovered(uncovered, best);
+        }
+        return targets;
+    }
+
+    /** Pick the reachable sender whose ball uncovers the most still-uncovered blocks. */
+    private BlockPos bestProbeSenderFor(BlockPos target, Set<BlockPos> reachableSet, Set<BlockPos> uncovered) {
+        BlockPos best = null;
+        int bestGain = 0;
+        for (Vec3i offset : this.probeBall()) {
+            BlockPos sender = target.offset(offset);
+            if (!reachableSet.contains(sender)) {
+                continue;
+            }
+            int gain = this.probeRevealGain(sender, uncovered);
+            if (gain <= bestGain) {
+                continue;
+            }
+            best = sender;
+            bestGain = gain;
+        }
+        return best;
+    }
+
+    private int probeRevealGain(BlockPos sender, Set<BlockPos> uncovered) {
+        int gain = 0;
+        for (Vec3i offset : this.probeBall()) {
+            if (uncovered.contains(sender.offset(offset))) {
+                gain++;
+            }
+        }
+        return gain;
+    }
+
+    private void markProbeCovered(Set<BlockPos> uncovered, BlockPos sender) {
+        for (Vec3i offset : this.probeBall()) {
+            BlockPos pos = sender.offset(offset);
+            uncovered.remove(pos);
+            this.probeAttempts.merge(pos, 1, Integer::sum);
+        }
+    }
+
+    private void handleProbePacket(Packet<?> packet) {
+        if (!this.probeSetting.getValue()) {
+            return;
+        }
+        if (packet instanceof ClientboundBlockUpdatePacket blockUpdate) {
+            this.onProbeServerBlock(blockUpdate.getPos(), blockUpdate.getBlockState());
+        } else if (packet instanceof ClientboundSectionBlocksUpdatePacket sectionUpdate) {
+            sectionUpdate.runUpdates(this::onProbeServerBlock);
+        } else if (packet instanceof ClientboundForgetLevelChunkPacket forgetChunk) {
+            this.forgetProbeChunk(forgetChunk.getX(), forgetChunk.getZ());
+        } else if (packet instanceof ClientboundLevelChunkWithLightPacket chunkPacket) {
+            this.forgetProbeChunk(chunkPacket.getX(), chunkPacket.getZ());
+        }
+    }
+
+    /**
+     * Anti-xray only disguises chunk packets, so every single-block/section update is authoritative.
+     * Positions the server never answered stay untrusted and are not displayed.
+     */
+    private void onProbeServerBlock(BlockPos rawPos, BlockState state) {
+        BlockPos pos = rawPos.immutable();
+        this.probeRevealed.add(pos);
+        if (this.isProbeTarget(state.getBlock())) {
+            this.probeOres.put(pos, state);
+        } else {
+            this.probeOres.remove(pos);
+        }
+        if (this.probeRadiusConfirmed || this.probeRoundTargets.isEmpty()) {
+            return;
+        }
+        for (Vec3i offset : PROBE_BALL_2) {
+            if (!this.probeRoundTargets.contains(pos.subtract(offset))) {
+                continue;
+            }
+            int dist = Math.abs(offset.getX()) + Math.abs(offset.getY()) + Math.abs(offset.getZ());
+            if (dist == 1) {
+                this.probeHitDist1++;
+            } else {
+                this.probeHitDist2++;
+            }
+        }
+    }
+
+    /** A chunk was (re)sent or dropped: its blocks are disguised again, so forget what we learned. */
+    private void forgetProbeChunk(int chunkX, int chunkZ) {
+        this.probeOres.keySet().removeIf(pos -> (pos.getX() >> 4) == chunkX && (pos.getZ() >> 4) == chunkZ);
+        this.probeRevealed.removeIf(pos -> (pos.getX() >> 4) == chunkX && (pos.getZ() >> 4) == chunkZ);
+        this.probeAttempts.keySet().removeIf(pos -> (pos.getX() >> 4) == chunkX && (pos.getZ() >> 4) == chunkZ);
+        this.probeRoundTargets.removeIf(pos -> (pos.getX() >> 4) == chunkX && (pos.getZ() >> 4) == chunkZ);
+    }
+
+    private void clearProbeState() {
+        this.probeOres.clear();
+        this.probeRevealed.clear();
+        this.probeAttempts.clear();
+        this.probeRoundTargets.clear();
+        this.probeQueue.clear();
+        this.probeAwaitingReply = false;
+        this.probeCooldownTicks = 0;
+        this.probeHitDist1 = 0;
+        this.probeHitDist2 = 0;
     }
 
     private Set<BlockPos> floodFillVein(BlockPos origin) {

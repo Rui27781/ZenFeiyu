@@ -18,6 +18,7 @@ import shit.zen.event.impl.Render2DEvent;
 import shit.zen.modules.impl.render.AspectRatio;
 import shit.zen.modules.impl.render.FullBright;
 import shit.zen.modules.impl.render.NoHurtCam;
+import shit.zen.modules.impl.render.Zoom;
 import shit.zen.render.Renderer;
 import shit.zen.utils.misc.ReflectionUtil;
 import shit.zen.utils.render.RenderUtil;
@@ -37,6 +38,9 @@ public class GameRendererPatch {
         // Start a new frame for the shared blur backdrop: world-space blur
         // (e.g. Projectiles) must not sample the previous frame's texture.
         RenderUtil.beginBlurFrame();
+        // Advance the zoom fade exactly once per frame, including while the module is off so
+        // releasing the bind animates the FOV back instead of snapping.
+        Zoom.tickStatic();
     }
 
     @Inject(
@@ -69,7 +73,12 @@ public class GameRendererPatch {
             targetDesc = "(FFFF)Lorg/joml/Matrix4f;"
     )
     public static Matrix4f onGetProjectionMatrix(GameRenderer gameRenderer, double fov, Invocation<GameRenderer, Matrix4f> original) throws Exception {
-        if (!ZenClient.isReady() || AspectRatio.INSTANCE == null || !AspectRatio.INSTANCE.isEnabled()) {
+        if (!ZenClient.isReady()) {
+            return original.call();
+        }
+        double effectiveFov = Zoom.applyStatic(fov);
+        boolean aspectEnabled = AspectRatio.INSTANCE != null && AspectRatio.INSTANCE.isEnabled();
+        if (!aspectEnabled && Math.abs(effectiveFov - fov) < 0.0005) {
             return original.call();
         }
         PoseStack poseStack = new PoseStack();
@@ -81,9 +90,13 @@ public class GameRendererPatch {
             poseStack.translate(zoomX, -zoomY, 0.0f);
             poseStack.scale(zoom, zoom, 1.0f);
         }
+        float ratio = aspectEnabled
+                ? AspectRatio.INSTANCE.ratioSetting.getValue().floatValue()
+                : (float) gameRenderer.getMinecraft().getWindow().getWidth()
+                        / (float) gameRenderer.getMinecraft().getWindow().getHeight();
         poseStack.last().pose().mul(new Matrix4f().setPerspective(
-                (float) (fov * (float) (Math.PI / 180.0)),
-                AspectRatio.INSTANCE.ratioSetting.getValue().floatValue(),
+                (float) (effectiveFov * (float) (Math.PI / 180.0)),
+                ratio,
                 0.05f,
                 gameRenderer.getDepthFar()));
         return poseStack.last().pose();

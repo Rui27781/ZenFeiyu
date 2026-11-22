@@ -17,6 +17,7 @@ import shit.zen.config.Config;
 import shit.zen.config.ModulesConfig;
 import shit.zen.config.ThemeConfig;
 import shit.zen.config.ValuesConfig;
+import shit.zen.utils.misc.Sounds;
 
 public class ConfigManager {
     public static final Logger LOGGER = LogManager.getLogger("ConfigManager");
@@ -34,15 +35,22 @@ public class ConfigManager {
     }
 
     public void loadAll() {
-        for (Config config : this.configs) {
-            try {
-                File file = config.getFile();
-                if (file.exists()) {
-                    readConfigFile(config, file);
+        // Restoring a profile toggles many modules; suppress the NeoRaven-style click sounds so a
+        // config load does not produce a burst of audio.
+        Sounds.suppress(true);
+        try {
+            for (Config config : this.configs) {
+                try {
+                    File file = config.getFile();
+                    if (file.exists()) {
+                        readConfigFile(config, file);
+                    }
+                } catch (IOException e) {
+                    LOGGER.error("Failed to load config " + config.getName(), e);
                 }
-            } catch (IOException e) {
-                LOGGER.error("Failed to load config " + config.getName(), e);
             }
+        } finally {
+            Sounds.suppress(false);
         }
     }
 

@@ -15,6 +15,7 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.entity.player.ChatVisiblity;
 import shit.zen.ClientBase;
 import shit.zen.asm.Invocation;
+import shit.zen.modules.impl.render.BetterChat;
 import shit.zen.utils.misc.ReflectionUtil;
 import shit.zen.utils.render.RenderUtil;
 
@@ -32,6 +33,7 @@ public class ChatComponentPatch
 extends ClientBase {
     private static final float PANEL_RADIUS = 6.0f;
     private static final float BLUR_RADIUS = 14.0f;
+    private static boolean chatPushed;
 
     @Inject(method = "render", desc = "(Lnet/minecraft/client/gui/GuiGraphics;III)V", at = @At(At.Type.HEAD))
     public static void onRenderHead(ChatComponent component, GuiGraphics graphics,
@@ -43,13 +45,21 @@ extends ClientBase {
             if (mc.options.chatVisibility().get() == ChatVisiblity.HIDDEN) {
                 return;
             }
+            if (BetterChat.clear()) {
+                return;
+            }
+            float layoutScale = (float) Math.max(0.01, component.getScale());
+            PoseStack layoutPose = graphics.pose();
+            layoutPose.pushPose();
+            chatPushed = true;
+            layoutPose.translate(BetterChat.appliedXOffset() / layoutScale,
+                    BetterChat.appliedYOffset() / layoutScale, 0.0f);
             List<?> messages = getTrimmedMessages(component);
             if (messages == null || messages.isEmpty()) {
                 return;
             }
 
-            double scaleValue = component.getScale();
-            float scale = (float) Math.max(0.01, scaleValue);
+            float scale = layoutScale;
             int widthUnits = Mth.ceil((float) component.getWidth() / scale);
             int bottomUnits = Mth.floor((float) (graphics.guiHeight() - 40) / scale);
             int lineHeight = (int) (9.0 * (mc.options.chatLineSpacing().get() + 1.0));
@@ -75,7 +85,7 @@ extends ClientBase {
             }
 
             float fade = 1.0f;
-            if (!(mc.screen instanceof ChatScreen)) {
+            if (BetterChat.smooth() && !(mc.screen instanceof ChatScreen)) {
                 fade = (float) (mc.options.chatOpacity().get() * 0.9 + 0.1);
                 if (messages.get(0) instanceof GuiMessage.Line line) {
                     double factor = (double) (tickCount - line.addedTime()) / 200.0;
@@ -106,11 +116,23 @@ extends ClientBase {
         }
     }
 
+    @Inject(method = "render", desc = "(Lnet/minecraft/client/gui/GuiGraphics;III)V", at = @At(At.Type.TAIL))
+    public static void onRenderTail(ChatComponent component, GuiGraphics graphics,
+                                    int tickCount, int mouseX, int mouseY, CallbackInfo callbackInfo) {
+        if (chatPushed) {
+            graphics.pose().popPose();
+            chatPushed = false;
+        }
+    }
+
     @WrapInvoke(method = "render", desc = "(Lnet/minecraft/client/gui/GuiGraphics;III)V",
             target = "net/minecraft/client/gui/GuiGraphics/fill", targetDesc = "(IIIII)V")
     public static void wrapBackgroundFill(ChatComponent component, GuiGraphics graphics,
                                           int tickCount, int mouseX, int mouseY,
                                           Invocation<GuiGraphics, Void> invocation) throws Exception {
+        if (BetterChat.clear()) {
+            return;
+        }
         List<Object> args = invocation.args();
         int x1 = ((Number) args.get(0)).intValue();
         int x2 = ((Number) args.get(2)).intValue();
