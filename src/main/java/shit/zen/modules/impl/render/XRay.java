@@ -1473,15 +1473,15 @@ public class XRay extends Module {
         BlockPos.MutableBlockPos pos = this.autoMineWalkPos;
         pos.set(x, y, z);
         BlockState state = level.getBlockState(pos);
-        if (state.getBlock() == Blocks.LAVA || state.getMaterial().isSolid()) {
+        if (state.getBlock() == Blocks.LAVA || state.isSolid()) {
             return false;
         }
         pos.set(x, y + 1, z);
-        if (level.getBlockState(pos).getMaterial().isSolid()) {
+        if (level.getBlockState(pos).isSolid()) {
             return false;
         }
         pos.set(x, y - 1, z);
-        return level.getBlockState(pos).getMaterial().isSolid();
+        return level.getBlockState(pos).isSolid();
     }
 
     // ===== Protocol probe: make the server reveal real blocks, then trust only those =====
