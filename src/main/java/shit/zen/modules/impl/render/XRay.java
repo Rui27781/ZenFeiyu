@@ -26,6 +26,7 @@ import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.Vec3i;
+import net.minecraft.util.Mth;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientboundBlockUpdatePacket;
 import net.minecraft.network.protocol.game.ClientboundForgetLevelChunkPacket;
@@ -36,6 +37,10 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.SwordItem;
+import net.minecraft.world.item.enchantment.EnchantmentHelper;
+import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
@@ -54,11 +59,13 @@ import shit.zen.settings.impl.ModeSetting;
 import shit.zen.settings.impl.NumberSetting;
 import lombok.EqualsAndHashCode;
 import shit.zen.utils.game.PlayerUtil;
+import shit.zen.utils.game.RotationUtil;
 import shit.zen.utils.misc.ChatUtil;
 import shit.zen.utils.misc.PacketUtil;
+import shit.zen.utils.rotation.Rotation;
 
 /**
- * XRay — ore locator with three visual layers:
+ * XRay — ore locator with three visual layers plus an optional built-in auto-miner:
  * <ul>
  *     <li><b>True see-through</b>: when this module is enabled, {@link shit.zen.patch.BlockPatch}
  *         hooks {@code Block.shouldRenderFace} and renders only the target blocks (the rest of the
@@ -74,6 +81,9 @@ import shit.zen.utils.misc.PacketUtil;
  *         sends cheap abort-break actions at reachable lattice points so the server broadcasts the
  *         real blocks around them, then renders <em>only</em> the ores the server itself confirmed.
  *         That makes the green probe boxes a fake-ore-free subset of everything else on screen.</li>
+ *     <li><b>Auto-mine</b>: an optional state machine that picks the nearest/highest-value ore from the
+ *         already-detected sets, smoothly turns toward it, swaps to the best hotbar tool, and drives
+ *         {@code startDestroyBlock}/{@code continueDestroyBlock} until the block breaks or times out.</li>
  * </ul>
  */
 public class XRay extends Module {
@@ -110,6 +120,30 @@ public class XRay extends Module {
     private final BooleanSetting ancientDebrisSetting = new BooleanSetting("Ancient Debris", true);
     private final BooleanSetting spawnerSetting = new BooleanSetting("Spawner", true);
     private final BooleanSetting endPortalSetting = new BooleanSetting("EndPortalFrame", true);
+
+    // ===== 自动挖矿设置（内置在 XRay 内，先探测矿物再自动挖掘） =====
+    /** 自动挖矿总开关。 */
+    private final BooleanSetting autoMineSetting = new BooleanSetting("Auto Mine", false);
+    /** 自动挖矿距离：从眼睛到方块中心的距离，超过后不会选中。 */
+    private final NumberSetting autoMineRangeSetting = new NumberSetting("Auto Mine Range", 4.5, 2.0, 6.0, 0.5, this.autoMineSetting::getValue);
+    /** 每挖掉一个方块后的间隔（毫秒），用于降低被反作弊判定为瞬间挖掘的概率。 */
+    private final NumberSetting autoMineDelaySetting = new NumberSetting("Auto Mine Delay", 150, 0, 2000, 50, this.autoMineSetting::getValue);
+    /** 单个方块的最长挖掘时间（秒），超时后放弃并临时拉黑。 */
+    private final NumberSetting autoMineTimeoutSetting = new NumberSetting("Auto Mine Timeout", 15, 1, 60, 1, this.autoMineSetting::getValue);
+    /** 目标选择优先级：Nearest=最近优先，Valuable=价值优先。 */
+    private final ModeSetting autoMinePrioritySetting = new ModeSetting("Auto Mine Priority", "Nearest", "Valuable")
+            .withVisibility(this.autoMineSetting::getValue)
+            .withDefault("Nearest");
+    /** 是否自动切换到最适合当前方块的工具。 */
+    private final BooleanSetting autoMineToolSetting = new BooleanSetting("Auto Mine Switch Tool", true, this.autoMineSetting::getValue);
+    /** 是否只挖暴露在空气/液体中的矿物，避免隔着一整面石头空挖。 */
+    private final BooleanSetting autoMineExposedSetting = new BooleanSetting("Auto Mine Exposed Only", false, this.autoMineSetting::getValue);
+    /** 是否只挖协议探针确认过的真实矿物（需要开启 Protocol Probe）。 */
+    private final BooleanSetting autoMineConfirmedSetting = new BooleanSetting("Auto Mine Confirmed Only", false,
+            () -> this.autoMineSetting.getValue() && this.probeSetting.getValue());
+    /** 是否给当前自动挖掘目标绘制金色高亮框。 */
+    private final BooleanSetting autoMineHighlightSetting = new BooleanSetting("Auto Mine Highlight", true, this.autoMineSetting::getValue);
+
     private final Color diamondColor = new Color(0, 255, 255);
     private final Color emeraldColor = new Color(0, 255, 0);
     private final Color redstoneColor = new Color(255, 0, 0);
@@ -184,6 +218,31 @@ public class XRay extends Module {
             Blocks.NETHERRACK, Blocks.BASALT, Blocks.BLACKSTONE, Blocks.SOUL_SAND, Blocks.SOUL_SOIL
     );
 
+    // ===== 自动挖矿运行状态（只在客户端线程读写，无需并发容器） =====
+    /** 当前正在挖掘的矿物方块；为 null 表示正在寻找目标。 */
+    private BlockPos autoMineTarget = null;
+    /** 是否已经对当前目标调用过 startDestroyBlock。 */
+    private boolean autoMineStarted = false;
+    /** 当前目标已经持续的 tick 数，用于超时放弃。 */
+    private int autoMineTicks = 0;
+    /** 下一次允许挑选目标的系统时间（毫秒），用于控制挖矿间隔。 */
+    private long autoMineNextTime = 0L;
+    /** 兜底局部扫描的下一次允许时间（毫秒），避免空闲时每 tick 都扫一圈。 */
+    private long autoMineLocalScanTime = 0L;
+    /** 当前目标使用的挖掘面（发给服务端的方块面）。 */
+    private Direction autoMineFace = Direction.UP;
+    /** 临时黑名单：记录超时/失败的方块与解禁时间，避免反复卡在同一块上。 */
+    private final Map<BlockPos, Long> autoMineBlacklist = new HashMap<>();
+    /** 转向速度（度/tick）与判定“已经对准”的角度容差。 */
+    private static final float AUTO_MINE_ROTATE_STEP = 35.0f;
+    private static final float AUTO_MINE_AIM_TOLERANCE = 6.0f;
+    /** 失败目标在黑名单中保留的时间（毫秒）与局部兜底扫描间隔（毫秒）。 */
+    private static final long AUTO_MINE_BLACKLIST_MS = 4000L;
+    private static final long AUTO_MINE_LOCAL_SCAN_INTERVAL_MS = 250L;
+    /** 自动挖矿目标的高亮颜色与略微外扩的包围盒（复用静态实例，避免每帧分配）。 */
+    private static final Color AUTO_MINE_COLOR = new Color(255, 196, 0);
+    private static final AABB AUTO_MINE_BOX = new AABB(-0.02, -0.02, -0.02, 1.02, 1.02, 1.02);
+
     public XRay() {
         super("XRay", Category.RENDER);
         INSTANCE = this;
@@ -222,6 +281,9 @@ public class XRay extends Module {
         this.chunkStateCache.clear();
         this.probeLevel = null;
         this.clearProbeState();
+        // 切换世界/关闭模块时，结束正在进行的自动挖掘并清空临时状态
+        this.resetAutoMine();
+        this.autoMineBlacklist.clear();
         this.generationId++;
     }
 
@@ -254,6 +316,8 @@ public class XRay extends Module {
                 }
             });
         }
+        // 先跑自动挖矿状态机，再跑协议探针：探针会检查 autoMineTarget，避免在挖矿时发 ABORT 包打断进度
+        this.tickAutoMine();
         this.tickProbe();
     }
 
@@ -339,6 +403,16 @@ public class XRay extends Module {
                     this.renderProbeBlock(poseStack, entry.getKey(), cameraPos);
                 }
             }
+        }
+        // 自动挖矿：给当前目标叠加一个金色高亮框，方便观察挖掘状态
+        if (this.autoMineSetting.getValue() && this.autoMineHighlightSetting.getValue() && this.autoMineTarget != null) {
+            poseStack.pushPose();
+            poseStack.translate(
+                    this.autoMineTarget.getX() - cameraPos.x,
+                    this.autoMineTarget.getY() - cameraPos.y,
+                    this.autoMineTarget.getZ() - cameraPos.z);
+            this.drawWireBox(poseStack, AUTO_MINE_BOX, AUTO_MINE_COLOR);
+            poseStack.popPose();
         }
         RenderSystem.enableCull();
         RenderSystem.enableDepthTest();
@@ -671,6 +745,353 @@ public class XRay extends Module {
         return new Vector3f(centerX + t * dx, centerY + t * dy, 0.0F);
     }
 
+    // ===== 自动挖矿：从已探测的矿物集合中选目标、转向、切换工具并挖掘 =====
+
+    /**
+     * 每 tick 驱动自动挖矿状态机。
+     *
+     * <p>目标只从 {@link #foundBlocks}、{@link #blindScanBlocks}、{@link #probeOres}
+     * 这些“已经探测到”的集合里挑选，因此流程始终是“先探测、后挖掘”，
+     * 不会凭空去挖视野里不存在的方块。</p>
+     */
+    private void tickAutoMine() {
+        if (!this.autoMineSetting.getValue()) {
+            // 关闭开关后立即停止挖掘，避免残留的破坏状态
+            if (this.autoMineTarget != null || this.autoMineStarted) {
+                this.resetAutoMine();
+            }
+            return;
+        }
+        if (mc.player == null || mc.level == null || mc.gameMode == null
+                || mc.screen != null || mc.player.isDeadOrDying() || mc.player.isSpectator()) {
+            this.resetAutoMine();
+            return;
+        }
+
+        // 已有目标：先确认方块仍然存在、仍然是矿物，并且仍在挖掘距离内
+        if (this.autoMineTarget != null) {
+            BlockState state = mc.level.getBlockState(this.autoMineTarget);
+            if (!this.isAutoMineBlock(state.getBlock())) {
+                // 方块已被挖掉或被替换：短暂拉黑，避免立即再次选中同一个位置
+                this.finishAutoMineTarget(true);
+                return;
+            }
+            if (!this.isWithinAutoMineRange(this.autoMineTarget)) {
+                // 玩家走远了：直接放弃，不拉黑，走回来还能继续挖
+                this.finishAutoMineTarget(false);
+                return;
+            }
+            this.mineAutoMineTarget();
+            return;
+        }
+
+        // 没有目标：等待挖矿间隔结束后，再从探测结果里挑一个
+        if (System.currentTimeMillis() < this.autoMineNextTime) {
+            return;
+        }
+        BlockPos target = this.selectAutoMineTarget();
+        if (target == null) {
+            // 探测集合里暂时没有目标时，低频扫描玩家周围一小圈，避免刚开启时一直站着不动；
+            // “仅挖已确认矿物”模式下不能用客户端视角兜底，否则会把假矿当成目标。
+            boolean confirmedOnly = this.autoMineConfirmedSetting.getValue() && this.probeSetting.getValue();
+            if (!confirmedOnly) {
+                long now = System.currentTimeMillis();
+                if (now >= this.autoMineLocalScanTime) {
+                    this.autoMineLocalScanTime = now + AUTO_MINE_LOCAL_SCAN_INTERVAL_MS;
+                    target = this.scanNearbyAutoMineTarget();
+                }
+            }
+            if (target == null) {
+                return;
+            }
+        }
+        this.autoMineTarget = target;
+        this.autoMineStarted = false;
+        this.autoMineTicks = 0;
+        this.autoMineFace = this.faceTowardPlayer(target);
+        if (this.autoMineToolSetting.getValue()) {
+            this.switchToBestAutoMineTool(mc.level.getBlockState(target));
+        }
+        this.mineAutoMineTarget();
+    }
+
+    /**
+     * 从三套探测结果中选出得分最高的矿物目标。
+     * 距离筛选放在最前面，只有进入范围的少量候选才会创建临时对象。
+     */
+    private BlockPos selectAutoMineTarget() {
+        // 黑名单过大时顺手清理过期项，避免长时间运行后无限增长
+        if (this.autoMineBlacklist.size() >= 128) {
+            long now = System.currentTimeMillis();
+            this.autoMineBlacklist.entrySet().removeIf(entry -> entry.getValue() <= now);
+        }
+        Vec3 eye = mc.player.getEyePosition();
+        double rangeSq = Math.pow(this.autoMineRangeSetting.getValue().doubleValue(), 2.0);
+        boolean valuable = this.autoMinePrioritySetting.is("Valuable");
+        boolean confirmedOnly = this.autoMineConfirmedSetting.getValue() && this.probeSetting.getValue();
+        BlockPos best = null;
+        double bestScore = Double.NEGATIVE_INFINITY;
+
+        // 普通扫描与盲区扫描的结果；确认模式下只看协议探针的结果
+        if (!confirmedOnly) {
+            for (Map.Entry<BlockPos, Block> entry : this.foundBlocks.entrySet()) {
+                BlockPos pos = entry.getKey();
+                double score = this.autoMineScore(pos.getX(), pos.getY(), pos.getZ(), entry.getValue(), eye, rangeSq, valuable);
+                if (score > bestScore) {
+                    bestScore = score;
+                    best = pos;
+                }
+            }
+            for (Map.Entry<BlockKey, BlockState> entry : this.blindScanBlocks.entrySet()) {
+                BlockKey key = entry.getKey();
+                double score = this.autoMineScore(key.x(), key.y(), key.z(), entry.getValue().getBlock(), eye, rangeSq, valuable);
+                if (score > bestScore) {
+                    bestScore = score;
+                    best = key.toBlockPos();
+                }
+            }
+        }
+        // 协议探针确认过的真实矿物始终参与竞争（确认模式下则是唯一来源）
+        for (Map.Entry<BlockPos, BlockState> entry : this.probeOres.entrySet()) {
+            BlockPos pos = entry.getKey();
+            double score = this.autoMineScore(pos.getX(), pos.getY(), pos.getZ(), entry.getValue().getBlock(), eye, rangeSq, valuable);
+            if (score > bestScore) {
+                bestScore = score;
+                best = pos;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * 兜底探测：直接扫描玩家周围一个立方体范围内的方块。
+     * 只在主探测集合没有目标时低频调用，保证刚开启模块或换区域时也能立即开工。
+     */
+    private BlockPos scanNearbyAutoMineTarget() {
+        Vec3 eye = mc.player.getEyePosition();
+        double range = this.autoMineRangeSetting.getValue().doubleValue();
+        double rangeSq = range * range;
+        int radius = Mth.ceil(range);
+        BlockPos origin = mc.player.blockPosition();
+        boolean valuable = this.autoMinePrioritySetting.is("Valuable");
+        BlockPos best = null;
+        double bestScore = Double.NEGATIVE_INFINITY;
+        for (BlockPos pos : BlockPos.betweenClosed(
+                origin.getX() - radius, origin.getY() - radius, origin.getZ() - radius,
+                origin.getX() + radius, origin.getY() + radius, origin.getZ() + radius)) {
+            Block block = mc.level.getBlockState(pos).getBlock();
+            double score = this.autoMineScore(pos.getX(), pos.getY(), pos.getZ(), block, eye, rangeSq, valuable);
+            if (score > bestScore) {
+                bestScore = score;
+                // betweenClosed 返回的是可变坐标，选中后必须复制一份
+                best = pos.immutable();
+            }
+        }
+        return best;
+    }
+
+    /** 计算单个候选的得分；无效/超距/黑名单中的方块返回负无穷。 */
+    private double autoMineScore(int x, int y, int z, Block block, Vec3 eye, double rangeSq, boolean valuable) {
+        if (!this.isAutoMineBlock(block)) {
+            return Double.NEGATIVE_INFINITY;
+        }
+        // 零分配的距离筛选：只有进入范围的候选才需要创建 BlockPos
+        double dx = (double) x + 0.5 - eye.x;
+        double dy = (double) y + 0.5 - eye.y;
+        double dz = (double) z + 0.5 - eye.z;
+        double distSq = dx * dx + dy * dy + dz * dz;
+        if (distSq > rangeSq) {
+            return Double.NEGATIVE_INFINITY;
+        }
+        BlockPos pos = new BlockPos(x, y, z);
+        if (this.isAutoMineBlacklisted(pos)) {
+            return Double.NEGATIVE_INFINITY;
+        }
+        if (this.autoMineExposedSetting.getValue() && !this.isExposedToAir(pos)) {
+            return Double.NEGATIVE_INFINITY;
+        }
+        // 最近优先直接用负距离；价值优先让价值差压过距离差（1 级价值 ≈ 1000 格²）
+        return valuable ? this.autoMineValue(block) * 1000.0 - distSq : -distSq;
+    }
+
+    /** 自动挖矿只处理当前模式/矿物开关允许的矿物，刷怪笼、传送门等特殊方块不挖。 */
+    private boolean isAutoMineBlock(Block block) {
+        return this.isEnabledOreBlock(block);
+    }
+
+    /** 矿物价值等级，仅用于“价值优先”排序。 */
+    private int autoMineValue(Block block) {
+        if (block == Blocks.DIAMOND_ORE || block == Blocks.DEEPSLATE_DIAMOND_ORE) {
+            return 100;
+        }
+        if (block == Blocks.EMERALD_ORE || block == Blocks.DEEPSLATE_EMERALD_ORE) {
+            return 95;
+        }
+        if (block == Blocks.ANCIENT_DEBRIS) {
+            return 90;
+        }
+        if (block == Blocks.GOLD_ORE || block == Blocks.DEEPSLATE_GOLD_ORE || block == Blocks.NETHER_GOLD_ORE) {
+            return 70;
+        }
+        if (block == Blocks.LAPIS_ORE || block == Blocks.DEEPSLATE_LAPIS_ORE) {
+            return 60;
+        }
+        if (block == Blocks.REDSTONE_ORE || block == Blocks.DEEPSLATE_REDSTONE_ORE) {
+            return 55;
+        }
+        if (block == Blocks.IRON_ORE || block == Blocks.DEEPSLATE_IRON_ORE) {
+            return 50;
+        }
+        if (block == Blocks.COPPER_ORE || block == Blocks.DEEPSLATE_COPPER_ORE) {
+            return 40;
+        }
+        if (block == Blocks.NETHER_QUARTZ_ORE) {
+            return 35;
+        }
+        if (block == Blocks.COAL_ORE || block == Blocks.DEEPSLATE_COAL_ORE) {
+            return 30;
+        }
+        return 10;
+    }
+
+    /** 方块是否至少有一面暴露在空气/液体中。 */
+    private boolean isExposedToAir(BlockPos pos) {
+        for (Direction direction : DIRECTIONS) {
+            if (this.isAirOrFluid(pos.relative(direction))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isAutoMineBlacklisted(BlockPos pos) {
+        Long expireAt = this.autoMineBlacklist.get(pos);
+        return expireAt != null && expireAt > System.currentTimeMillis();
+    }
+
+    /** 眼睛到方块中心的距离是否仍在自动挖矿范围内。 */
+    private boolean isWithinAutoMineRange(BlockPos pos) {
+        Vec3 eye = mc.player.getEyePosition();
+        double dx = (double) pos.getX() + 0.5 - eye.x;
+        double dy = (double) pos.getY() + 0.5 - eye.y;
+        double dz = (double) pos.getZ() + 0.5 - eye.z;
+        double range = this.autoMineRangeSetting.getValue().doubleValue();
+        return dx * dx + dy * dy + dz * dz <= range * range;
+    }
+
+    /** 选择离玩家眼睛最近的那个方块面，作为挖掘包里的方向参数。 */
+    private Direction faceTowardPlayer(BlockPos pos) {
+        Vec3 eye = mc.player.getEyePosition();
+        return Direction.getNearest(
+                eye.x - ((double) pos.getX() + 0.5),
+                eye.y - ((double) pos.getY() + 0.5),
+                eye.z - ((double) pos.getZ() + 0.5));
+    }
+
+    /**
+     * 在快捷栏里挑选对目标方块破坏速度最快的工具。
+     * 剑不适合挖矿，直接跳过；效率附魔按原版公式折算成额外速度。
+     */
+    private void switchToBestAutoMineTool(BlockState state) {
+        if (state == null || state.isAir()) {
+            return;
+        }
+        int bestSlot = -1;
+        float bestSpeed = 1.0f;
+        for (int slot = 0; slot < 9; slot++) {
+            ItemStack stack = mc.player.getInventory().getItem(slot);
+            if (stack.isEmpty() || stack.getItem() instanceof SwordItem) {
+                continue;
+            }
+            float speed = stack.getItem().getDestroySpeed(stack, state);
+            int efficiency = EnchantmentHelper.getItemEnchantmentLevel(Enchantments.BLOCK_EFFICIENCY, stack);
+            if (efficiency > 0) {
+                speed += (float) (efficiency * efficiency + 1);
+            }
+            if (speed > bestSpeed) {
+                bestSlot = slot;
+                bestSpeed = speed;
+            }
+        }
+        if (bestSlot != -1 && mc.player.getInventory().selected != bestSlot) {
+            mc.player.getInventory().selected = bestSlot;
+            // 立即把主手物品同步给服务端，避免挖掘包与手持物品不一致
+            PlayerUtil.sendCarriedItem();
+        }
+    }
+
+    /** 平滑转向目标并推进挖掘。 */
+    private void mineAutoMineTarget() {
+        BlockPos pos = this.autoMineTarget;
+        if (pos == null) {
+            return;
+        }
+        Vec3 eye = mc.player.getEyePosition();
+        Rotation rotation = RotationUtil.exactRotation(eye, Vec3.atCenterOf(pos));
+        float yawDelta = Mth.wrapDegrees(rotation.getYaw() - mc.player.getYRot());
+        float pitchDelta = rotation.getPitch() - mc.player.getXRot();
+
+        // 每 tick 最多转动固定角度，避免瞬间甩头；朝向会在移动包里同步给服务端
+        mc.player.setYRot(mc.player.getYRot() + Mth.clamp(yawDelta, -AUTO_MINE_ROTATE_STEP, AUTO_MINE_ROTATE_STEP));
+        mc.player.setXRot(Mth.clamp(
+                mc.player.getXRot() + Mth.clamp(pitchDelta, -AUTO_MINE_ROTATE_STEP, AUTO_MINE_ROTATE_STEP),
+                -90.0f, 90.0f));
+
+        boolean aimed = Math.abs(yawDelta) <= AUTO_MINE_AIM_TOLERANCE
+                && Math.abs(pitchDelta) <= AUTO_MINE_AIM_TOLERANCE;
+        if (!aimed) {
+            // 还没对准：已经开挖的目标继续维持进度，否则只转向
+            if (this.autoMineStarted) {
+                mc.gameMode.continueDestroyBlock(pos, this.autoMineFace);
+            }
+            return;
+        }
+
+        if (!this.autoMineStarted) {
+            this.autoMineFace = this.faceTowardPlayer(pos);
+            this.autoMineStarted = mc.gameMode.startDestroyBlock(pos, this.autoMineFace);
+            if (!this.autoMineStarted) {
+                // 例如领地保护、冒险模式限制：拉黑一段时间，换下一个目标
+                this.finishAutoMineTarget(true);
+                return;
+            }
+        } else {
+            mc.gameMode.continueDestroyBlock(pos, this.autoMineFace);
+        }
+
+        // 超时保护：被保护或无法破坏的方块不能永远占着目标
+        int timeoutTicks = this.autoMineTimeoutSetting.getValue().intValue() * 20;
+        if (++this.autoMineTicks > timeoutTicks) {
+            this.finishAutoMineTarget(true);
+        }
+    }
+
+    /** 结束当前目标；blacklist 为 true 时把方块放入临时黑名单。 */
+    private void finishAutoMineTarget(boolean blacklist) {
+        if (this.autoMineTarget != null && blacklist) {
+            this.autoMineBlacklist.put(this.autoMineTarget.immutable(), System.currentTimeMillis() + AUTO_MINE_BLACKLIST_MS);
+        }
+        if (this.autoMineStarted && mc.gameMode != null && mc.gameMode.isDestroying()) {
+            mc.gameMode.stopDestroyBlock();
+        }
+        this.autoMineTarget = null;
+        this.autoMineStarted = false;
+        this.autoMineTicks = 0;
+        this.autoMineNextTime = System.currentTimeMillis() + this.autoMineDelaySetting.getValue().longValue();
+    }
+
+    /** 立即停止自动挖矿并清空目标（关闭模块、切换世界、打开界面时调用）。 */
+    private void resetAutoMine() {
+        if (this.autoMineStarted && mc.gameMode != null && mc.gameMode.isDestroying()) {
+            mc.gameMode.stopDestroyBlock();
+        }
+        this.autoMineTarget = null;
+        this.autoMineStarted = false;
+        this.autoMineTicks = 0;
+        this.autoMineNextTime = 0L;
+        this.autoMineLocalScanTime = 0L;
+    }
+
     // ===== Protocol probe: make the server reveal real blocks, then trust only those =====
 
     private static List<Vec3i> buildProbeBall(int radius) {
@@ -737,8 +1158,8 @@ public class XRay extends Module {
             this.probeCooldownTicks = probeTicks(this.probeIntervalSetting.getValue().longValue());
             return;
         }
-        // Never fight real mining input.
-        if (mc.options.keyAttack.isDown()) {
+        // Never fight real mining input, including the built-in auto-mine state machine.
+        if (mc.options.keyAttack.isDown() || (this.autoMineSetting.getValue() && this.autoMineTarget != null)) {
             return;
         }
         this.detectProbeRadius();
@@ -1457,6 +1878,18 @@ public class XRay extends Module {
             this.x = pos.getX();
             this.y = pos.getY();
             this.z = pos.getZ();
+        }
+
+        int x() {
+            return this.x;
+        }
+
+        int y() {
+            return this.y;
+        }
+
+        int z() {
+            return this.z;
         }
 
         BlockPos toBlockPos() {

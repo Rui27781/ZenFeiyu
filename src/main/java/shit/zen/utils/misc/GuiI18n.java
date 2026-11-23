@@ -213,6 +213,49 @@ public final class GuiI18n {
         put(SETTINGS, "Enabled", "已开启");
         put(SETTINGS, "Disabled", "已关闭");
 
+        // XRay 与内置自动挖矿。
+        put(SETTINGS, "Block Type", "方块类型");
+        put(SETTINGS, "Scan Delay", "扫描间隔");
+        put(SETTINGS, "Tracers", "追踪线");
+        put(SETTINGS, "MaxBlocks", "最大方块数");
+        put(SETTINGS, "Anti-Fake Ore", "防假矿");
+        put(SETTINGS, "Min Auth Score", "最低可信分");
+        put(SETTINGS, "Pattern Analysis", "分布分析");
+        put(SETTINGS, "Strict Host Rock Check", "严格母岩检测");
+        put(SETTINGS, "Enable Alternative Start", "启用备用起点");
+        put(SETTINGS, "Min Air Blocks Required", "最少空气方块");
+        put(SETTINGS, "Alternative Search Radius", "备用搜索半径");
+        put(SETTINGS, "Blind Scan", "盲区扫描");
+        put(SETTINGS, "Blind Render Range", "盲区渲染范围");
+        put(SETTINGS, "Protocol Probe", "协议探针");
+        put(SETTINGS, "Probe Radius", "探针半径");
+        put(SETTINGS, "Probe Batch", "探针批量");
+        put(SETTINGS, "Probe Interval", "探针间隔");
+        put(SETTINGS, "Minimum Vein Size", "最小矿脉大小");
+        put(SETTINGS, "Diamond", "钻石");
+        put(SETTINGS, "Emerald", "绿宝石");
+        put(SETTINGS, "Redstone", "红石");
+        put(SETTINGS, "Iron", "铁");
+        put(SETTINGS, "Gold", "金");
+        put(SETTINGS, "Copper", "铜");
+        put(SETTINGS, "Lapis", "青金石");
+        put(SETTINGS, "Coal", "煤炭");
+        put(SETTINGS, "Quartz", "石英");
+        put(SETTINGS, "Ancient Debris", "远古残骸");
+        put(SETTINGS, "Spawner", "刷怪笼");
+        put(SETTINGS, "EndPortalFrame", "末地传送门");
+        put(SETTINGS, "Auto Mine", "自动挖矿");
+        put(SETTINGS, "Auto Mine Range", "挖矿范围");
+        put(SETTINGS, "Auto Mine Delay", "挖矿间隔");
+        put(SETTINGS, "Auto Mine Timeout", "单块超时");
+        put(SETTINGS, "Auto Mine Priority", "目标优先级");
+        put(SETTINGS, "Auto Mine Switch Tool", "自动切换工具");
+        put(SETTINGS, "Auto Mine Exposed Only", "仅挖暴露矿物");
+        put(SETTINGS, "Auto Mine Confirmed Only", "仅挖已确认矿物");
+        put(SETTINGS, "Auto Mine Highlight", "目标高亮");
+        put(SETTINGS, "Nearest", "最近优先");
+        put(SETTINGS, "Valuable", "价值优先");
+
         // Combat.
         module("AntiBots", "反机器人", "识别服务器中的机器人玩家，供其他功能过滤。", "Identifies bot players so other features can filter them.");
         module("AntiFireball", "反火焰弹", "拦截并抵消飞向自己的火焰弹。", "Blocks and counters incoming fireballs.");
@@ -306,7 +349,7 @@ public final class GuiI18n {
         module("Watermark", "水印", "显示客户端水印或动态岛。", "Shows the client watermark or dynamic island.");
         module("WindowTitle", "窗口标题", "动态修改游戏窗口的标题文字。", "Animates the game window title text.");
         module("Wings", "翼", "在角色背后绘制装饰性翅膀。", "Draws decorative wings behind the player.");
-        module("XRay", "方块透视", "让指定方块变得透明可见。", "Makes selected blocks transparent so hidden ones are visible.");
+        module("XRay", "方块透视", "让指定方块变得透明可见，并可自动探测与挖掘周围矿物。", "Makes selected blocks transparent and can automatically detect and mine nearby ores.");
         module("Zoom", "缩放", "降低视野以便观察远处。", "Lowers the field of view to zoom in.");
 
         // Client.
