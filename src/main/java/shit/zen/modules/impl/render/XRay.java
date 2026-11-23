@@ -52,6 +52,7 @@ import shit.zen.event.impl.GameTickEvent;
 import shit.zen.event.impl.PacketEvent;
 import shit.zen.event.impl.Render2DEvent;
 import shit.zen.event.impl.RenderEvent;
+import shit.zen.event.impl.StrafeEvent;
 import shit.zen.modules.Category;
 import shit.zen.modules.Module;
 import shit.zen.settings.impl.BooleanSetting;
@@ -82,8 +83,10 @@ import shit.zen.utils.rotation.Rotation;
  *         real blocks around them, then renders <em>only</em> the ores the server itself confirmed.
  *         That makes the green probe boxes a fake-ore-free subset of everything else on screen.</li>
  *     <li><b>Auto-mine</b>: an optional state machine that picks the nearest/highest-value ore from the
- *         already-detected sets, smoothly turns toward it, swaps to the best hotbar tool, and drives
- *         {@code startDestroyBlock}/{@code continueDestroyBlock} until the block breaks or times out.</li>
+ *         already-detected sets, optionally walks to it with a small BFS + {@code StrafeEvent} input,
+ *         verifies it against the protocol probe before breaking (fake ores are skipped), smoothly turns
+ *         toward it, swaps to the best hotbar tool, and drives {@code startDestroyBlock}/{@code
+ *         continueDestroyBlock} until the block breaks or times out.</li>
  * </ul>
  */
 public class XRay extends Module {
@@ -143,6 +146,17 @@ public class XRay extends Module {
             () -> this.autoMineSetting.getValue() && this.probeSetting.getValue());
     /** 是否给当前自动挖掘目标绘制金色高亮框。 */
     private final BooleanSetting autoMineHighlightSetting = new BooleanSetting("Auto Mine Highlight", true, this.autoMineSetting::getValue);
+    /** 是否自动走到矿物旁边再挖：目标超出挖掘距离时，用简易寻路接近。 */
+    private final BooleanSetting autoMineWalkSetting = new BooleanSetting("Auto Mine Walk", false, this.autoMineSetting::getValue);
+    /** 自动接近时允许扫描多远的已探测矿物。 */
+    private final NumberSetting autoMineWalkRangeSetting = new NumberSetting("Auto Mine Walk Range", 24, 8, 48, 2,
+            () -> this.autoMineSetting.getValue() && this.autoMineWalkSetting.getValue());
+    /**
+     * 破坏前是否必须让协议探针确认目标确实是真矿（沿用已移植的防假矿机制）。
+     * 探针会让服务端回传准星所指方块的真实状态，客户端伪造的假矿不会通过确认。
+     */
+    private final BooleanSetting autoMineVerifySetting = new BooleanSetting("Auto Mine Verify Ore", true,
+            () -> this.autoMineSetting.getValue() && this.probeSetting.getValue());
 
     private final Color diamondColor = new Color(0, 255, 255);
     private final Color emeraldColor = new Color(0, 255, 0);
@@ -242,6 +256,40 @@ public class XRay extends Module {
     /** 自动挖矿目标的高亮颜色与略微外扩的包围盒（复用静态实例，避免每帧分配）。 */
     private static final Color AUTO_MINE_COLOR = new Color(255, 196, 0);
     private static final AABB AUTO_MINE_BOX = new AABB(-0.02, -0.02, -0.02, 1.02, 1.02, 1.02);
+
+    // ===== 自动接近（走路）运行状态：只在客户端线程读写 =====
+    /** 是否正在朝矿物行走；只有它为 true 时 onStrafe 才会改写移动输入。 */
+    private boolean autoMineWalking = false;
+    /** 本 tick 写入 StrafeEvent 的前进/平移/跳跃量。 */
+    private float autoMineWalkForward = 0.0f;
+    private float autoMineWalkStrafe = 0.0f;
+    private boolean autoMineWalkJump = false;
+    /** 寻路结果：每三个整数为一组 (x, y, z)，从玩家当前位置到矿物旁边的站立点。 */
+    private int[] autoMineWalkPath = null;
+    /** 当前正在追踪的路径点下标（单位：整数个数，因此步长为 3）。 */
+    private int autoMineWalkPathStep = 0;
+    /** 路径生成时间，超过有效期后重新寻路，避免地形变化后继续走老路。 */
+    private long autoMineWalkPathTime = 0L;
+    /** 连续多少 tick 几乎没有位移，用于卡墙保护。 */
+    private int autoMineWalkStall = 0;
+    private double autoMineWalkLastX = 0.0;
+    private double autoMineWalkLastZ = 0.0;
+    /** BFS 复用容器：寻路是低频操作，复用可避免频繁分配。 */
+    private final Set<Integer> autoMineWalkVisited = new HashSet<>();
+    private final Map<Integer, Integer> autoMineWalkParents = new HashMap<>();
+    private final ArrayDeque<Integer> autoMineWalkQueue = new ArrayDeque<>();
+    private final Set<Integer> autoMineWalkGoals = new HashSet<>();
+    private final BlockPos.MutableBlockPos autoMineWalkPos = new BlockPos.MutableBlockPos();
+    /** 防假矿确认：记录上次发给服务端的定向探针时间与等待 tick。 */
+    private long autoMineVerifySendTime = 0L;
+    private int autoMineVerifyTicks = 0;
+    private static final int AUTO_MINE_PATH_MAX_NODES = 3000;
+    private static final double AUTO_MINE_WAYPOINT_RADIUS = 0.6;
+    private static final float AUTO_MINE_WALK_ROTATE_STEP = 25.0f;
+    private static final int AUTO_MINE_STALL_TICKS = 25;
+    private static final long AUTO_MINE_PATH_TTL_MS = 1500L;
+    private static final long AUTO_MINE_VERIFY_INTERVAL_MS = 500L;
+    private static final int AUTO_MINE_VERIFY_TIMEOUT_TICKS = 40;
 
     public XRay() {
         super("XRay", Category.RENDER);
@@ -756,8 +804,8 @@ public class XRay extends Module {
      */
     private void tickAutoMine() {
         if (!this.autoMineSetting.getValue()) {
-            // 关闭开关后立即停止挖掘，避免残留的破坏状态
-            if (this.autoMineTarget != null || this.autoMineStarted) {
+            // 关闭开关后立即停止挖掘，避免残留的破坏状态或移动输入
+            if (this.autoMineTarget != null || this.autoMineStarted || this.autoMineWalking) {
                 this.resetAutoMine();
             }
             return;
@@ -768,7 +816,7 @@ public class XRay extends Module {
             return;
         }
 
-        // 已有目标：先确认方块仍然存在、仍然是矿物，并且仍在挖掘距离内
+        // 已有目标：先确认方块仍然存在、仍然是矿物
         if (this.autoMineTarget != null) {
             BlockState state = mc.level.getBlockState(this.autoMineTarget);
             if (!this.isAutoMineBlock(state.getBlock())) {
@@ -777,10 +825,17 @@ public class XRay extends Module {
                 return;
             }
             if (!this.isWithinAutoMineRange(this.autoMineTarget)) {
+                // 自动接近开启时：不放弃目标，走向矿物旁边的可站立位置
+                if (this.autoMineWalkSetting.getValue()) {
+                    this.stepAutoMineWalk();
+                    return;
+                }
                 // 玩家走远了：直接放弃，不拉黑，走回来还能继续挖
                 this.finishAutoMineTarget(false);
                 return;
             }
+            // 已经进入挖掘范围：停止走路，进入转向/确认/挖掘流程
+            this.stopAutoMineWalk();
             this.mineAutoMineTarget();
             return;
         }
@@ -790,6 +845,12 @@ public class XRay extends Module {
             return;
         }
         BlockPos target = this.selectAutoMineTarget();
+        if (target == null && this.autoMineWalkSetting.getValue()) {
+            // 近处没有目标：从更大范围的已探测矿物里挑一个，随后自动走过去。
+            // 这里仍只使用探测集合（而不是凭空相信客户端方块），防假矿规则保持不变。
+            double walkRange = this.autoMineWalkRangeSetting.getValue().doubleValue();
+            target = this.selectAutoMineTarget(walkRange * walkRange, true);
+        }
         if (target == null) {
             // 探测集合里暂时没有目标时，低频扫描玩家周围一小圈，避免刚开启时一直站着不动；
             // “仅挖已确认矿物”模式下不能用客户端视角兜底，否则会把假矿当成目标。
@@ -805,10 +866,18 @@ public class XRay extends Module {
                 return;
             }
         }
+        // 兜底扫描可能直接读到了客户端被反作弊伪装的方块：复用已有的防假矿评分再确认一次
+        if (!this.isAutoMineOreAuthentic(target, mc.level.getBlockState(target).getBlock())) {
+            this.autoMineBlacklist.put(target.immutable(), System.currentTimeMillis() + AUTO_MINE_BLACKLIST_MS);
+            return;
+        }
         this.autoMineTarget = target;
         this.autoMineStarted = false;
         this.autoMineTicks = 0;
         this.autoMineFace = this.faceTowardPlayer(target);
+        this.autoMineVerifySendTime = 0L;
+        this.autoMineVerifyTicks = 0;
+        this.stopAutoMineWalk();
         if (this.autoMineToolSetting.getValue()) {
             this.switchToBestAutoMineTool(mc.level.getBlockState(target));
         }
@@ -820,15 +889,23 @@ public class XRay extends Module {
      * 距离筛选放在最前面，只有进入范围的少量候选才会创建临时对象。
      */
     private BlockPos selectAutoMineTarget() {
+        double range = this.autoMineRangeSetting.getValue().doubleValue();
+        return this.selectAutoMineTarget(range * range, false);
+    }
+
+    /**
+     * 带自定义范围的目标选择。allowUnconfirmed 为 true 时允许先用探测层（已做防假矿评分）
+     * 的矿物作为行走目标，破坏前仍必须由协议探针确认，避免假矿进入挖掘流程。
+     */
+    private BlockPos selectAutoMineTarget(double rangeSq, boolean allowUnconfirmed) {
         // 黑名单过大时顺手清理过期项，避免长时间运行后无限增长
         if (this.autoMineBlacklist.size() >= 128) {
             long now = System.currentTimeMillis();
             this.autoMineBlacklist.entrySet().removeIf(entry -> entry.getValue() <= now);
         }
         Vec3 eye = mc.player.getEyePosition();
-        double rangeSq = Math.pow(this.autoMineRangeSetting.getValue().doubleValue(), 2.0);
         boolean valuable = this.autoMinePrioritySetting.is("Valuable");
-        boolean confirmedOnly = this.autoMineConfirmedSetting.getValue() && this.probeSetting.getValue();
+        boolean confirmedOnly = this.autoMineConfirmedSetting.getValue() && this.probeSetting.getValue() && !allowUnconfirmed;
         BlockPos best = null;
         double bestScore = Double.NEGATIVE_INFINITY;
 
@@ -917,6 +994,34 @@ public class XRay extends Module {
     /** 自动挖矿只处理当前模式/矿物开关允许的矿物，刷怪笼、传送门等特殊方块不挖。 */
     private boolean isAutoMineBlock(Block block) {
         return this.isEnabledOreBlock(block);
+    }
+
+    /**
+     * 防假矿二次校验：协议探针确认过、服务端单块更新过的方块都可信；
+     * 对兜底扫描直接读到的客户端方块，复用 XRay 已有的矿脉可信分评分（与 ESP 层同一套规则）。
+     */
+    private boolean isAutoMineOreAuthentic(BlockPos pos, Block block) {
+        if (!this.isAutoMineBlock(block)) {
+            return false;
+        }
+        if (this.probeSetting.getValue() && this.probeOres.containsKey(pos)) {
+            return true;
+        }
+        if (this.blindScanBlocks.containsKey(new BlockKey(pos))) {
+            return true;
+        }
+        if (this.foundBlocks.containsKey(pos)) {
+            return true;
+        }
+        if (!this.antiFakeOreSetting.getValue()) {
+            return true;
+        }
+        List<BlockPos> vein = this.collectVeinBlocks(pos.immutable(), block, new HashSet<>());
+        if (vein.isEmpty()) {
+            return false;
+        }
+        OreScore score = this.calcOreScore(vein, block);
+        return score.isAuthentic(this.minAuthScoreSetting.getValue().doubleValue());
     }
 
     /** 矿物价值等级，仅用于“价值优先”排序。 */
@@ -1047,6 +1152,10 @@ public class XRay extends Module {
             return;
         }
 
+        // 破坏前先沿用协议探针确认这是真矿，准星已对准目标，避免挖到反作弊伪造的假矿
+        if (!this.autoMineStarted && !this.verifyAutoMineTarget(pos)) {
+            return;
+        }
         if (!this.autoMineStarted) {
             this.autoMineFace = this.faceTowardPlayer(pos);
             this.autoMineStarted = mc.gameMode.startDestroyBlock(pos, this.autoMineFace);
@@ -1066,6 +1175,53 @@ public class XRay extends Module {
         }
     }
 
+    /**
+     * 防假矿确认：先让准星对准目标，再沿用协议探针向服务端发一次 ABORT_DESTROY_BLOCK。
+     * 服务端回传单块更新后，只有 probeOres 里的方块才算真矿；若回传的是别的方块，直接放弃。
+     * 这样自动挖矿与视觉层使用完全相同的防假矿判定，不会挖客户端伪造的矿石。
+     */
+    private boolean verifyAutoMineTarget(BlockPos pos) {
+        if (!this.autoMineVerifySetting.getValue() || !this.probeSetting.getValue()) {
+            return true;
+        }
+        if (this.probeOres.containsKey(pos)) {
+            this.autoMineVerifyTicks = 0;
+            return true;
+        }
+        if (this.probeRevealed.contains(pos)) {
+            // 服务端回答过但说不是矿物：这是一个假矿，拉黑并换目标
+            this.finishAutoMineTarget(true);
+            return false;
+        }
+        if (++this.autoMineVerifyTicks > AUTO_MINE_VERIFY_TIMEOUT_TICKS) {
+            // 服务端一直不回包：保守放弃，宁可少挖也不挖假矿
+            this.finishAutoMineTarget(true);
+            return false;
+        }
+        long now = System.currentTimeMillis();
+        if (now >= this.autoMineVerifySendTime) {
+            // 探针的气球不包含发送点本身，因此要在目标的相邻格发送，服务端才会回传目标方块的真实状态
+            BlockPos sender = this.findAutoMineProbeSender(pos);
+            if (sender != null) {
+                this.autoMineVerifySendTime = now + AUTO_MINE_VERIFY_INTERVAL_MS;
+                PacketUtil.send(new ServerboundPlayerActionPacket(
+                        ServerboundPlayerActionPacket.Action.ABORT_DESTROY_BLOCK, sender, Direction.UP));
+            }
+        }
+        return false;
+    }
+
+    /** 找一个够得着、且能通过单块更新覆盖目标的探针发送点。 */
+    private BlockPos findAutoMineProbeSender(BlockPos target) {
+        for (Direction dir : DIRECTIONS) {
+            BlockPos sender = target.relative(dir);
+            if (this.isProbeReachable(sender)) {
+                return sender;
+            }
+        }
+        return null;
+    }
+
     /** 结束当前目标；blacklist 为 true 时把方块放入临时黑名单。 */
     private void finishAutoMineTarget(boolean blacklist) {
         if (this.autoMineTarget != null && blacklist) {
@@ -1074,6 +1230,9 @@ public class XRay extends Module {
         if (this.autoMineStarted && mc.gameMode != null && mc.gameMode.isDestroying()) {
             mc.gameMode.stopDestroyBlock();
         }
+        this.stopAutoMineWalk();
+        this.autoMineVerifyTicks = 0;
+        this.autoMineVerifySendTime = 0L;
         this.autoMineTarget = null;
         this.autoMineStarted = false;
         this.autoMineTicks = 0;
@@ -1085,11 +1244,244 @@ public class XRay extends Module {
         if (this.autoMineStarted && mc.gameMode != null && mc.gameMode.isDestroying()) {
             mc.gameMode.stopDestroyBlock();
         }
+        this.stopAutoMineWalk();
+        this.autoMineVerifyTicks = 0;
+        this.autoMineVerifySendTime = 0L;
         this.autoMineTarget = null;
         this.autoMineStarted = false;
         this.autoMineTicks = 0;
         this.autoMineNextTime = 0L;
         this.autoMineLocalScanTime = 0L;
+    }
+
+    // ===== 自动接近：复用 StrafeEvent 钩子模拟前进，配合简易 BFS 走到矿物旁边 =====
+
+    /**
+     * 自动接近时的移动输入：项目已有的 KeyboardInputPatch 会把 StrafeEvent 的结果写回 Input，
+     * 因此不需要直接改 KeyMapping，也不会覆盖玩家真实按键。
+     */
+    @EventTarget
+    public void onStrafe(StrafeEvent event) {
+        if (!this.autoMineSetting.getValue() || !this.autoMineWalking
+                || mc.player == null || mc.screen != null) {
+            return;
+        }
+        event.setForward(this.autoMineWalkForward);
+        event.setStrafe(this.autoMineWalkStrafe);
+        // KeyboardInputPatch 里 sprint 字段实际写到 jumping，用它自动跨上一格台阶
+        event.setSprinting(this.autoMineWalkJump);
+    }
+
+    /** 停止自动接近并清空路径，避免残留移动输入。 */
+    private void stopAutoMineWalk() {
+        this.autoMineWalking = false;
+        this.autoMineWalkForward = 0.0f;
+        this.autoMineWalkStrafe = 0.0f;
+        this.autoMineWalkJump = false;
+        this.autoMineWalkPath = null;
+        this.autoMineWalkPathStep = 0;
+        this.autoMineWalkStall = 0;
+    }
+
+    /** 每 tick 追踪当前路径点；路径失效时重新寻路，卡住时放弃目标。 */
+    private void stepAutoMineWalk() {
+        if (this.autoMineTarget == null) {
+            this.stopAutoMineWalk();
+            return;
+        }
+        if (this.autoMineWalkPath == null
+                || this.autoMineWalkPathStep + 2 >= this.autoMineWalkPath.length
+                || System.currentTimeMillis() - this.autoMineWalkPathTime > AUTO_MINE_PATH_TTL_MS) {
+            if (!this.buildAutoMinePath(this.autoMineTarget)) {
+                // 没有可走通的路径：拉黑该矿，换下一个目标
+                this.finishAutoMineTarget(true);
+                return;
+            }
+            if (!this.autoMineWalking) {
+                // 起点已经紧挨矿物，下一 tick 会直接进入挖掘流程
+                return;
+            }
+        }
+        int[] path = this.autoMineWalkPath;
+        int step = this.autoMineWalkPathStep;
+        int wx = path[step];
+        int wy = path[step + 1];
+        int wz = path[step + 2];
+        double dx = (double) wx + 0.5 - mc.player.getX();
+        double dz = (double) wz + 0.5 - mc.player.getZ();
+        if (dx * dx + dz * dz < AUTO_MINE_WAYPOINT_RADIUS * AUTO_MINE_WAYPOINT_RADIUS
+                && Math.abs(mc.player.getY() - (double) wy) < 1.3) {
+            step += 3;
+            if (step + 2 >= path.length) {
+                // 到达终点：停止走路，接下来的 tick 会进入转向/确认/挖掘
+                this.stopAutoMineWalk();
+                return;
+            }
+            this.autoMineWalkPathStep = step;
+            wx = path[step];
+            wy = path[step + 1];
+            wz = path[step + 2];
+            dx = (double) wx + 0.5 - mc.player.getX();
+            dz = (double) wz + 0.5 - mc.player.getZ();
+        }
+        // 平滑转向下一个路径点；偏角过大时先减速，避免直接撞墙
+        float yaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
+        float yawDelta = Mth.wrapDegrees(yaw - mc.player.getYRot());
+        mc.player.setYRot(mc.player.getYRot()
+                + Mth.clamp(yawDelta, -AUTO_MINE_WALK_ROTATE_STEP, AUTO_MINE_WALK_ROTATE_STEP));
+        this.autoMineWalkForward = Math.abs(yawDelta) < 70.0f ? 1.0f : 0.35f;
+        this.autoMineWalkStrafe = 0.0f;
+        // 目标点比当前脚底高一格时自动跳，配合寻路中的 1 格台阶
+        this.autoMineWalkJump = wy > Mth.floor(mc.player.getY());
+        this.autoMineWalking = true;
+
+        double movedX = mc.player.getX() - this.autoMineWalkLastX;
+        double movedZ = mc.player.getZ() - this.autoMineWalkLastZ;
+        if (movedX * movedX + movedZ * movedZ < 0.0004) {
+            if (++this.autoMineWalkStall > AUTO_MINE_STALL_TICKS) {
+                // 长时间没有位移：认定卡墙/被挡住，放弃并换目标
+                this.finishAutoMineTarget(true);
+                return;
+            }
+        } else {
+            this.autoMineWalkStall = 0;
+        }
+        this.autoMineWalkLastX = mc.player.getX();
+        this.autoMineWalkLastZ = mc.player.getZ();
+    }
+
+    /**
+     * 从玩家当前格到矿物相邻可站立格的 BFS。
+     * 只走非固体、头顶有空间且脚下有支撑的格子，最多上下 1 格台阶，穿不过石头。
+     */
+    private boolean buildAutoMinePath(BlockPos ore) {
+        BlockPos origin = mc.player.blockPosition();
+        this.autoMineWalkVisited.clear();
+        this.autoMineWalkParents.clear();
+        this.autoMineWalkQueue.clear();
+        this.autoMineWalkGoals.clear();
+        for (Direction dir : DIRECTIONS) {
+            int x = ore.getX() + dir.getStepX();
+            int y = ore.getY() + dir.getStepY();
+            int z = ore.getZ() + dir.getStepZ();
+            int key = this.encodeAutoMinePos(x, y, z, origin);
+            if (key >= 0 && this.isAutoMineWalkable(x, y, z)) {
+                this.autoMineWalkGoals.add(key);
+            }
+        }
+        if (this.autoMineWalkGoals.isEmpty()) {
+            return false;
+        }
+        int start = this.encodeAutoMinePos(origin.getX(), origin.getY(), origin.getZ(), origin);
+        if (start < 0) {
+            return false;
+        }
+        this.autoMineWalkVisited.add(start);
+        this.autoMineWalkQueue.add(start);
+        int found = -1;
+        int visited = 0;
+        while (!this.autoMineWalkQueue.isEmpty() && visited < AUTO_MINE_PATH_MAX_NODES) {
+            int current = this.autoMineWalkQueue.poll();
+            visited++;
+            if (this.autoMineWalkGoals.contains(current)) {
+                found = current;
+                break;
+            }
+            int cx = origin.getX() + ((current >> 16) - 64);
+            int cy = origin.getY() + (((current >> 8) & 0xFF) - 64);
+            int cz = origin.getZ() + ((current & 0xFF) - 64);
+            for (Direction dir : Direction.Plane.HORIZONTAL) {
+                int nx = cx + dir.getStepX();
+                int nz = cz + dir.getStepZ();
+                // 只允许 1 格台阶，避免走出会摔落的路径
+                for (int shift = -1; shift <= 1; shift++) {
+                    int ny = cy + shift;
+                    int key = this.encodeAutoMinePos(nx, ny, nz, origin);
+                    if (key < 0 || this.autoMineWalkVisited.contains(key)) {
+                        continue;
+                    }
+                    if (!this.isAutoMineWalkable(nx, ny, nz)) {
+                        continue;
+                    }
+                    this.autoMineWalkVisited.add(key);
+                    this.autoMineWalkParents.put(key, current);
+                    this.autoMineWalkQueue.add(key);
+                }
+            }
+        }
+        if (found < 0) {
+            return false;
+        }
+        ArrayList<Integer> reversed = new ArrayList<>();
+        int cursor = found;
+        while (cursor != start && reversed.size() <= AUTO_MINE_PATH_MAX_NODES) {
+            reversed.add(cursor);
+            Integer parent = this.autoMineWalkParents.get(cursor);
+            if (parent == null) {
+                return false;
+            }
+            cursor = parent;
+        }
+        if (cursor != start) {
+            return false;
+        }
+        if (reversed.isEmpty()) {
+            // 玩家已经站在矿物旁边，不需要走路
+            this.autoMineWalkPath = null;
+            this.autoMineWalkPathStep = 0;
+            this.autoMineWalking = false;
+            return true;
+        }
+        int[] path = new int[(reversed.size() + 1) * 3];
+        path[0] = origin.getX();
+        path[1] = origin.getY();
+        path[2] = origin.getZ();
+        for (int i = 0; i < reversed.size(); i++) {
+            int key = reversed.get(reversed.size() - 1 - i);
+            int offset = (i + 1) * 3;
+            path[offset] = origin.getX() + ((key >> 16) - 64);
+            path[offset + 1] = origin.getY() + (((key >> 8) & 0xFF) - 64);
+            path[offset + 2] = origin.getZ() + ((key & 0xFF) - 64);
+        }
+        this.autoMineWalkPath = path;
+        this.autoMineWalkPathStep = 3;
+        this.autoMineWalkPathTime = System.currentTimeMillis();
+        this.autoMineWalkStall = 0;
+        this.autoMineWalkLastX = mc.player.getX();
+        this.autoMineWalkLastZ = mc.player.getZ();
+        this.autoMineWalking = true;
+        return true;
+    }
+
+    /** 把相对玩家坐标打包进 int，供 BFS 的 visited/parent 容器使用。 */
+    private static int encodeAutoMinePos(int x, int y, int z, BlockPos origin) {
+        int dx = x - origin.getX() + 64;
+        int dy = y - origin.getY() + 64;
+        int dz = z - origin.getZ() + 64;
+        if (dx < 0 || dx > 127 || dy < 0 || dy > 127 || dz < 0 || dz > 127) {
+            return -1;
+        }
+        return (dx << 16) | (dy << 8) | dz;
+    }
+
+    /** 可站立格：本体与头顶都不是固体，脚下有支撑，并且不是岩浆。 */
+    private boolean isAutoMineWalkable(int x, int y, int z) {
+        Level level = mc.level;
+        if (level == null) {
+            return false;
+        }
+        BlockPos.MutableBlockPos pos = this.autoMineWalkPos;
+        pos.set(x, y, z);
+        BlockState state = level.getBlockState(pos);
+        if (state.getBlock() == Blocks.LAVA || state.getMaterial().isSolid()) {
+            return false;
+        }
+        pos.set(x, y + 1, z);
+        if (level.getBlockState(pos).getMaterial().isSolid()) {
+            return false;
+        }
+        pos.set(x, y - 1, z);
+        return level.getBlockState(pos).getMaterial().isSolid();
     }
 
     // ===== Protocol probe: make the server reveal real blocks, then trust only those =====
@@ -1158,8 +1550,8 @@ public class XRay extends Module {
             this.probeCooldownTicks = probeTicks(this.probeIntervalSetting.getValue().longValue());
             return;
         }
-        // Never fight real mining input, including the built-in auto-mine state machine.
-        if (mc.options.keyAttack.isDown() || (this.autoMineSetting.getValue() && this.autoMineTarget != null)) {
+        // 只在真正开始破坏时暂停探针；自动接近/等待防假矿确认期间仍需要探针工作
+        if (mc.options.keyAttack.isDown() || (this.autoMineSetting.getValue() && this.autoMineStarted)) {
             return;
         }
         this.detectProbeRadius();

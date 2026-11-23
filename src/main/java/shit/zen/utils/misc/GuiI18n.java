@@ -253,6 +253,9 @@ public final class GuiI18n {
         put(SETTINGS, "Auto Mine Exposed Only", "仅挖暴露矿物");
         put(SETTINGS, "Auto Mine Confirmed Only", "仅挖已确认矿物");
         put(SETTINGS, "Auto Mine Highlight", "目标高亮");
+        put(SETTINGS, "Auto Mine Walk", "自动走过去");
+        put(SETTINGS, "Auto Mine Walk Range", "接近范围");
+        put(SETTINGS, "Auto Mine Verify Ore", "挖掘前校验真矿");
         put(SETTINGS, "Nearest", "最近优先");
         put(SETTINGS, "Valuable", "价值优先");
 
