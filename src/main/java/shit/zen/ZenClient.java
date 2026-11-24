@@ -49,6 +49,7 @@ import shit.zen.patch.MinecraftPatch;
 import shit.zen.patch.PacketUtilsPatch;
 import shit.zen.patch.PlayerPatch;
 import shit.zen.patch.PlayerTabOverlayPatch;
+import shit.zen.patch.ScreenPatch;
 import shit.zen.asm.Bootstrap;
 import shit.zen.utils.rotation.RotationHandler;
 
@@ -205,6 +206,7 @@ public class ZenClient extends ClientBase {
         PatchRegistry.register(ChatComponentPatch.class);
         PatchRegistry.register(ChatScreenPatch.class);
         PatchRegistry.register(EditBoxPatch.class);
+        PatchRegistry.register(ScreenPatch.class);
         PatchRegistry.register(EntityRendererPatch.class);
         PatchRegistry.register(LevelRendererPatch.class);
         PatchRegistry.register(BlockPatch.class);

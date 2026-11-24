@@ -1,7 +1,6 @@
 package shit.zen.utils.misc;
 
 import net.minecraft.client.resources.sounds.SimpleSoundInstance;
-import net.minecraft.client.resources.sounds.SoundInstance;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.sounds.SoundEvent;
@@ -52,17 +51,24 @@ public final class Sounds extends ClientBase {
             ResourceLocation location = ResourceLocation.tryParse(id);
             SoundEvent event = location == null ? null : BuiltInRegistries.SOUND_EVENT.get(location);
             if (event == null) {
-                event = BuiltInRegistries.SOUND_EVENT.get(new ResourceLocation("minecraft:note.pling"));
-            }
-            if (event == null) {
                 event = SoundEvents.UI_BUTTON_CLICK.value();
             }
-            // Volume is intentionally applied through pitch only for UI sounds: 1.20.1's UI bus
-            // owns its gain, and forcing a per-instance volume made toggles far too loud.
-            SoundInstance instance = SimpleSoundInstance.forUI(event, pitch);
-            mc.getSoundManager().play(instance);
+            playEvent(event, volume, pitch);
         } catch (Throwable ignored) {
             // A missing or malformed sound id must never break gameplay.
+        }
+    }
+
+    /** 统一播放 UI 音效，所有开关音都走这里，保证 1.20.1 一定有声音。 */
+    private static void playEvent(SoundEvent event, float volume, float pitch) {
+        if (event == null || mc == null || mc.getSoundManager() == null) {
+            return;
+        }
+        try {
+            // 1.20.1 的签名是 forUI(event, pitch, volume)，顺序不能写反。
+            mc.getSoundManager().play(SimpleSoundInstance.forUI(event, pitch, volume));
+        } catch (Throwable ignored) {
+            // Sound must never break a module toggle.
         }
     }
 
@@ -75,7 +81,9 @@ public final class Sounds extends ClientBase {
         Sounds.toggle(enabled, false);
     }
 
-    /** @param force bypass the master module check, used while toggling ToggleSounds itself */
+    /**
+     * @param force bypass the master module check, used while toggling ToggleSounds itself
+     */
     public static void toggle(boolean enabled, boolean force) {
         if (suppressed) {
             return;
@@ -85,37 +93,32 @@ public final class Sounds extends ClientBase {
             return;
         }
         String style = module.styleSetting.getValue();
+        // 旧版实现会尝试播放 zenfeiyu:toggle_* 自定义资源，但仓库里没有对应
+        // sounds.json / ogg，导致 Tick/Smooth/Celestial/Nursultan 默认全部静音。
+        // 这里改用 1.20.1 内置且一定注册的 SoundEvent，并用音高区分开关。
+        float pitchJitter = random(-0.03f, 0.03f);
         if ("Lever".equals(style)) {
-            playUi("random.click", enabled ? 0.6f : 0.5f);
+            playEvent(SoundEvents.UI_BUTTON_CLICK.value(), 0.7f, (enabled ? 0.8f : 0.62f) + pitchJitter);
             return;
         }
         if ("Pling".equals(style)) {
-            playUi("note.pling", enabled ? 1.85f : 1.45f);
+            playEvent(SoundEvents.NOTE_BLOCK_PLING.value(), 0.65f, (enabled ? 1.85f : 1.45f) + pitchJitter);
             return;
         }
-        String suffix = enabled ? "_on" : "_off";
-        String set = "Smooth".equals(style) ? "smooth"
-                : "Celestial".equals(style) ? "celestial" : "nursultan";
-        if (!playSample("zenfeiyu:toggle_" + set + suffix)) {
-            playSample("zenfeiyu:toggle" + suffix);
+        if ("Smooth".equals(style)) {
+            playEvent(SoundEvents.EXPERIENCE_ORB_PICKUP.value(), 0.7f, (enabled ? 1.35f : 1.0f) + pitchJitter);
+            return;
         }
-    }
-
-    private static boolean playSample(String id) {
-        if (mc == null || mc.getSoundManager() == null) {
-            return false;
+        if ("Celestial".equals(style)) {
+            playEvent(SoundEvents.NOTE_BLOCK_CHIME.value(), 0.7f, (enabled ? 1.65f : 1.15f) + pitchJitter);
+            return;
         }
-        try {
-            ResourceLocation location = ResourceLocation.tryParse(id);
-            if (location == null || !BuiltInRegistries.SOUND_EVENT.containsKey(location)) {
-                return false;
-            }
-            SoundEvent event = BuiltInRegistries.SOUND_EVENT.get(location);
-            mc.getSoundManager().play(SimpleSoundInstance.forUI(event, 1.0f));
-            return true;
-        } catch (Throwable ignored) {
-            return false;
+        if ("Nursultan".equals(style)) {
+            playEvent(SoundEvents.NOTE_BLOCK_BELL.value(), 0.6f, (enabled ? 1.25f : 0.9f) + pitchJitter);
+            return;
         }
+        // Tick 是默认风格：轻微、短促，开启和关闭音高不同。
+        playEvent(SoundEvents.UI_BUTTON_CLICK.value(), 0.85f, (enabled ? 1.22f : 0.92f) + pitchJitter);
     }
 
     public static void suppress(boolean value) {

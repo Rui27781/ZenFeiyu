@@ -28,7 +28,7 @@ import shit.zen.utils.render.RenderUtil;
 
 public class CategoryPanel
 extends UIElement {
-    public static final int BG_COLOR = ColorUtil.fromRGB(23, 23, 23);
+    public static final int BG_COLOR = ColorUtil.fromARGB(13, 14, 19, 224);
     @Getter @Setter
     private String searchQuery = "";
     @Getter
@@ -124,22 +124,33 @@ extends UIElement {
         }
         float scaleAmount = this.scaleTimer.getValueF();
         RenderHelper.pushScaleAround(poseStack, this.posX + 60.0f, this.posY + this.panelHeight / 2.0f, 0.4f + 0.6f * scaleAmount);
-        float shadowSize = 12.0f;
-        RenderUtil.drawRoundedRect(poseStack, this.posX - shadowSize, this.posY - shadowSize, 120.0f + shadowSize * 2.0f, this.panelHeight + shadowSize * 2.0f, 6.0f + shadowSize / 2.0f, shadowSize, ColorUtil.fromARGB(0, 0, 0, (int)(80.0f * alpha * 1.0f)));
-        RenderUtil.drawRoundedRect(poseStack, this.posX, this.posY, 120.0f, this.panelHeight, 6.0f, ColorUtil.withAlpha(BG_COLOR, alpha));
+        // NeoRaven 风格：先做一层柔和投影，再用毛玻璃 + 细描边构成面板主体。
+        RenderUtil.drawShadow(poseStack, this.posX + 1.5f, this.posY + 3.0f, 117.0f, this.panelHeight,
+                14, ColorUtil.fromARGB(0, 0, 0, (int)(130.0f * alpha)));
+        RenderUtil.drawBlurredRect(poseStack, this.posX, this.posY, 120.0f, this.panelHeight, 8.0f,
+                16.0f, 0.9f, ColorUtil.withAlpha(0xFF0B0C12, 0.55f * alpha));
+        RenderUtil.drawRoundedRect(poseStack, this.posX - 0.5f, this.posY - 0.5f, 121.0f, this.panelHeight + 1.0f,
+                8.5f, ColorUtil.withAlpha(-1, 0.10f * alpha));
+        RenderUtil.drawRoundedRect(poseStack, this.posX, this.posY, 120.0f, this.panelHeight, 8.0f,
+                ColorUtil.withAlpha(BG_COLOR, alpha));
         StencilHelper.beginWrite(false);
-        RenderUtil.drawRoundedRect(poseStack, this.posX + 0.5f, this.posY, 118.0f, 20.0f, 6.0f, -1);
+        RenderUtil.drawRoundedRect(poseStack, this.posX + 0.5f, this.posY, 118.0f, 20.0f, 8.0f, -1);
         StencilHelper.beginRead(true);
-        RenderUtil.drawGradientH(poseStack, this.posX, this.posY, 120.0f, 1.0f, ColorUtil.withAlpha(Theme.shimmer(100L), alpha), ColorUtil.withAlpha(Theme.shimmer(2000L), alpha));
+        // 顶栏轻微强调色渐隐，让分类标题更有层次。
+        RenderUtil.drawGradientV(poseStack, this.posX, this.posY, 120.0f, 20.0f,
+                ColorUtil.withAlpha(Theme.accent(), 0.18f * alpha), ColorUtil.withAlpha(Theme.accent(), 0.0f));
+        RenderUtil.drawGradientH(poseStack, this.posX, this.posY, 120.0f, 1.5f, ColorUtil.withAlpha(Theme.shimmer(100L), alpha), ColorUtil.withAlpha(Theme.shimmer(2000L), alpha));
         StencilHelper.end();
         CustomFont titleFont = GuiI18n.isChinese() ? FontStore.PINGFANG_16 : FontStore.AXIFORMA_EXTRABOLD_18;
         String titleText = GuiI18n.translateCategory(this.category.name());
-        titleFont.drawString(poseStack, titleText, this.posX + 8.0f, this.posY + (20.0f - titleFont.getFontHeight()) / 2.0f + 3.0f, ColorUtil.withAlpha(-1, alpha));
+        RenderUtil.drawRoundedRect(poseStack, this.posX + 6.0f, this.posY + 7.0f, 2.0f, 7.0f, 1.0f,
+                ColorUtil.withAlpha(Theme.accent(), alpha));
+        titleFont.drawString(poseStack, titleText, this.posX + 12.0f, this.posY + (20.0f - titleFont.getFontHeight()) / 2.0f + 3.0f, ColorUtil.withAlpha(-1, alpha));
         float scrollOffset = this.scrollTimer.getValueF();
         float elementY = this.posY + 20.0f - scrollOffset;
         StencilHelper.beginWrite(false);
         RenderUtil.drawFilledRect(poseStack, this.posX + 0.5f, this.posY + 20.0f, 119.0f, 6.0f, -1);
-        RenderUtil.drawRoundedRect(poseStack, this.posX, this.posY + 20.0f, 120.0f, this.panelHeight - 20.0f - 0.5f, 6.0f, -1);
+        RenderUtil.drawRoundedRect(poseStack, this.posX, this.posY + 20.0f, 120.0f, this.panelHeight - 20.0f - 0.5f, 8.0f, -1);
         StencilHelper.beginRead(true);
         for (ModuleElement moduleElement : this.moduleElements) {
             if (!visibleModules.contains(moduleElement)) {

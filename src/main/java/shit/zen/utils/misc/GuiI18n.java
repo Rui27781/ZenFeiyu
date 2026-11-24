@@ -165,6 +165,10 @@ public final class GuiI18n {
 
         // Commonly used setting labels.
         put(SETTINGS, "Mode", "模式");
+        put(SETTINGS, "Fixed Name", "固定名称");
+        put(SETTINGS, "ClickGui", "点击界面");
+        put(SETTINGS, "Containers", "容器界面");
+        put(SETTINGS, "Other Screens", "其他界面");
         put(SETTINGS, "Color", "颜色");
         put(SETTINGS, "Colors", "颜色");
         put(SETTINGS, "Red", "红");
@@ -176,6 +180,7 @@ public final class GuiI18n {
         put(SETTINGS, "Scale", "缩放");
         put(SETTINGS, "Size", "大小");
         put(SETTINGS, "Toggle", "开关");
+        put(SETTINGS, "Toggle Sound", "开关音效");
         put(SETTINGS, "Key", "按键");
         put(SETTINGS, "Theme", "主题");
         put(SETTINGS, "Style", "风格");
@@ -343,6 +348,7 @@ public final class GuiI18n {
         module("Meteors", "陨石", "在世界中绘制下落的陨石粒子。", "Draws falling meteor particles in the world.");
         module("NameProtect", "名字保护", "替换屏幕上出现的指定昵称。", "Replaces chosen player names wherever they appear.");
         module("NameTags", "名字标签", "在玩家头顶显示自定义名字标签。", "Shows custom name tags above players.");
+        module("NoBackground", "无界面背景", "取消界面后方淡灰色遮罩，让背包和菜单更通透。", "Removes the grey dim behind GUIs for a cleaner, transparent look.");
         module("NoHurtCam", "无受伤晃动", "取消受伤时的镜头晃动。", "Removes the camera shake when taking damage.");
         module("Notifications", "通知提示", "以卡片形式显示模块与事件通知。", "Shows module and event notifications as toast cards.");
         module("OldHitting", "旧版挥手", "复刻旧版攻击手臂动画。", "Recreates the legacy attack-swing animation.");

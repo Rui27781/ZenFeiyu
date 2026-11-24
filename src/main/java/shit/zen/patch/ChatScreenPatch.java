@@ -81,4 +81,19 @@ public class ChatScreenPatch {
             ClientBase.logger.error(exception.getMessage());
         }
     }
+
+    @Inject(method = "mouseReleased", desc = "(DDI)Z")
+    public static void onMouseReleased(ChatScreen screen, double mouseX, double mouseY, int button, CallbackInfo callbackInfo) {
+        if (button != 0) {
+            return;
+        }
+        try {
+            for (HudElement element : ZenClient.getInstance().getHudManager().getHudElements()) {
+                element.stopDragging();
+            }
+        } catch (Exception exception) {
+            ClientBase.logger.error(exception);
+            ClientBase.logger.error(exception.getMessage());
+        }
+    }
 }

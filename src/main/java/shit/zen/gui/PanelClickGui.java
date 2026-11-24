@@ -19,6 +19,7 @@ import shit.zen.gui.panel.SettingsPanel;
 import shit.zen.gui.panel.setting.NumberSettingRenderer;
 import shit.zen.modules.Category;
 import shit.zen.modules.Module;
+import shit.zen.modules.impl.render.NoBackground;
 import shit.zen.render.CustomFont;
 import shit.zen.render.FontPresets;
 import shit.zen.render.FontRenderer;
@@ -136,7 +137,9 @@ extends Screen {
         }
         float eased = this.easeOutCubic(this.openProgress);
         float scaleFactor = 0.98f + 0.02f * eased;
-        guiGraphics.fill(0, 0, this.width, this.height, new Color(0, 0, 0, (int)(80.0f * eased)).getRGB());
+        if (!NoBackground.shouldHide(this)) {
+            guiGraphics.fill(0, 0, this.width, this.height, new Color(0, 0, 0, (int)(80.0f * eased)).getRGB());
+        }
         this.updateScaleSwitchState();
         int centerX = this.width / 2;
         int centerY = this.height / 2;

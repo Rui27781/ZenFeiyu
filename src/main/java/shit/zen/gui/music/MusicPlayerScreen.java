@@ -11,6 +11,7 @@ import shit.zen.music.MusicManager;
 import shit.zen.music.MusicUtil;
 import shit.zen.music.Song;
 import shit.zen.modules.impl.client.MusicPlayer;
+import shit.zen.modules.impl.render.NoBackground;
 import shit.zen.render.DrawContext;
 import shit.zen.render.FontStore;
 import shit.zen.render.ResourceLocationWrapper;
@@ -98,6 +99,9 @@ public class MusicPlayerScreen extends Screen {
 
     @Override
     public void renderBackground(GuiGraphics guiGraphics) {
+        if (NoBackground.shouldHide(this)) {
+            return;
+        }
         guiGraphics.fill(0, 0, this.width, this.height, 0x88000000);
     }
 

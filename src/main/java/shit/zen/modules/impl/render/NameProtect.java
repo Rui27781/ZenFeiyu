@@ -18,12 +18,18 @@ import shit.zen.event.impl.DisconnectEvent;
 import shit.zen.modules.Category;
 import shit.zen.modules.Module;
 import shit.zen.settings.impl.ModeSetting;
+import shit.zen.settings.impl.StringSetting;
 import shit.zen.event.EventTarget;
 
 public class NameProtect
 extends Module {
+    /** 名称保护固定显示的 ID，按需求固定为“大肥鱼”。 */
+    public static final String DEFAULT_FIXED_NAME = "大肥鱼";
     public static NameProtect INSTANCE;
     private final ModeSetting modeSetting = new ModeSetting("Mode", "Fixed", "Random").withDefault("Fixed");
+    /** Fixed 模式下使用的昵称；空值时回退到“大肥鱼”。 */
+    private final StringSetting fixedNameSetting = new StringSetting("Fixed Name", DEFAULT_FIXED_NAME, 24)
+            .withDefault(DEFAULT_FIXED_NAME);
     private String cachedRandomName = null;
     private final Random random = new Random();
 
@@ -48,7 +54,7 @@ extends Module {
         }
         try {
             String string2 = mc.player.getName().getString();
-            String string3 = INSTANCE.generateRandomName();
+            String string3 = INSTANCE.protectedName();
             if (string3 != null && !string3.equals(string2) && string.contains(string2)) {
                 return NameProtect.replaceNameToken(string, string2, string3);
             }
@@ -89,7 +95,7 @@ extends Module {
             if (target.isEmpty()) {
                 return json;
             }
-            String replacement = INSTANCE.generateRandomName();
+            String replacement = INSTANCE.protectedName();
             if (replacement == null || replacement.equals(target)) {
                 return json;
             }
@@ -160,17 +166,38 @@ extends Module {
 
     public static String getProtectedName() {
         if (mc.player == null) {
-            return "Player";
+            return DEFAULT_FIXED_NAME;
         }
         if (INSTANCE == null || !INSTANCE.isEnabled()) {
             return mc.player.getName().getString();
         }
         String string = mc.player.getName().getString();
-        String string2 = INSTANCE.generateRandomName();
+        String string2 = INSTANCE.protectedName();
         if (string2 != null && !string2.equals(string)) {
             return string2;
         }
         return string;
+    }
+
+    /**
+     * 当前应该展示的受保护名称：Fixed 模式永远使用固定 ID（默认“大肥鱼”），
+     * Random 模式才从在线玩家中随机挑一个名字。
+     */
+    public String protectedName() {
+        if (this.modeSetting.is("Random")) {
+            String randomName = this.generateRandomName();
+            return randomName == null ? this.fixedName() : randomName;
+        }
+        return this.fixedName();
+    }
+
+    /** 固定名称允许用户在设置里修改，但为空时始终回退到“大肥鱼”。 */
+    private String fixedName() {
+        String value = this.fixedNameSetting.getValue();
+        if (value == null || value.isBlank()) {
+            return DEFAULT_FIXED_NAME;
+        }
+        return value.trim();
     }
 
     private String generateRandomName() {

@@ -22,42 +22,51 @@ import shit.zen.utils.render.ColorUtil;
 import shit.zen.utils.render.RenderUtil;
 
 /**
- * Enabled-module list rendered as a stack of frosted glass pills.
+ * Enabled-module list rendered as one continuous frosted-glass panel.
  *
- * <p>Every row has its own soft drop shadow, a dark translucent body and a
- * vertical accent bar on the right edge. The bar uses
- * {@link Theme#accentAt(float)} so it follows the colour picker in the
- * ClickGUI (including rainbow mode).</p>
+ * <p>The visual language follows the NeoRaven screenshots: a compact dark
+ * header with a small gradient logo tile, a hairline rim, and a dense list of
+ * left-aligned module names with the bound key on the right. Rows keep the
+ * per-row accent colour used by the old pill layout, but no longer allocate a
+ * separate panel/shadow for every module.</p>
  */
 public class ModuleListHud
 extends HudElement {
-    private static final float ROW_HEIGHT = 18.0f;
-    private static final float ROW_GAP = 3.0f;
-    private static final float RADIUS = 5.0f;
-    private static final float LEFT_PADDING = 8.0f;
-    private static final float BAR_WIDTH = 2.0f;
-    private static final float BAR_RIGHT_PADDING = 5.0f;
-    private static final float BAR_TEXT_GAP = 6.0f;
-    private static final float BLUR_RADIUS = 14.0f;
-    private static final FontRenderer FONT = FontPresets.pingfang(16.0f);
-    private static final int BODY_COLOR = new Color(12, 14, 20, 165).getRGB();
-    private static final int RIM_COLOR = new Color(255, 255, 255, 30).getRGB();
-    private static final int SHADOW_COLOR = new Color(0, 0, 0, 120).getRGB();
-    private static final int TEXT_COLOR = new Color(235, 235, 242, 245).getRGB();
-    private static final int SUB_TEXT_COLOR = new Color(200, 200, 212, 235).getRGB();
+    private static final float HEADER_HEIGHT = 24.0f;
+    private static final float ROW_HEIGHT = 16.0f;
+    private static final float PANEL_PADDING = 6.0f;
+    private static final float PANEL_RADIUS = 7.0f;
+    private static final float LOGO_SIZE = 17.0f;
+    private static final float BLUR_RADIUS = 16.0f;
+    private static final float ACCENT_DOT = 2.5f;
+    private static final FontRenderer FONT = FontPresets.pingfang(14.0f);
+    private static final FontRenderer FONT_TITLE = FontPresets.poppinsBold(12.5f);
+    private static final FontRenderer FONT_SUB = FontPresets.poppinsMedium(9.0f);
+    private static final FontRenderer FONT_KEY = FontPresets.poppinsMedium(9.0f);
+    private static final FontRenderer FONT_LOGO = FontPresets.zenIcon(14.0f);
 
-    public ModuleListHud() {
-        super("ModuleList");
-        this.setX(4.0f);
-        this.setY(4.0f);
-    }
+    private static final int PANEL_COLOR = new Color(11, 12, 17, 205).getRGB();
+    private static final int HEADER_COLOR = new Color(21, 23, 31, 225).getRGB();
+    private static final int RIM_COLOR = new Color(255, 255, 255, 34).getRGB();
+    private static final int SHADOW_COLOR = new Color(0, 0, 0, 135).getRGB();
+    private static final int TEXT_COLOR = new Color(238, 239, 246, 245).getRGB();
+    private static final int SUB_TEXT_COLOR = new Color(184, 187, 200, 230).getRGB();
+    private static final int KEY_COLOR = new Color(156, 160, 176, 220).getRGB();
+    private static final int SEPARATOR_COLOR = new Color(255, 255, 255, 15).getRGB();
 
     private List<Module> visibleModules = Collections.emptyList();
     private long visibleSignature = Long.MIN_VALUE;
     private float widestModule;
     private String cachedFpsText = "";
     private float cachedFpsWidth;
-    private static final float TITLE_WIDTH = GlHelper.getStringWidth("Zen", FONT);
+    private float cachedTitleWidth = -1.0f;
+    private float cachedVersionWidth = -1.0f;
+
+    public ModuleListHud() {
+        super("ModuleList");
+        this.setX(4.0f);
+        this.setY(4.0f);
+    }
 
     /**
      * Rebuilds the sorted visible-module list only when the enabled set
@@ -114,82 +123,141 @@ extends HudElement {
         }
         this.refreshVisibleModules();
         List<Module> visibleModules = this.visibleModules;
-        String header = "Zen";
-        String fps = "(" + mc.getFps() + "FPS)";
+
+        if (this.cachedTitleWidth < 0.0f) {
+            this.cachedTitleWidth = GlHelper.getStringWidth("Zen", FONT_TITLE);
+            this.cachedVersionWidth = GlHelper.getStringWidth("v" + ZenClient.VERSION, FONT_SUB);
+        }
+        String fps = "(" + mc.getFps() + " FPS)";
         if (!fps.equals(this.cachedFpsText)) {
             this.cachedFpsText = fps;
-            this.cachedFpsWidth = GlHelper.getStringWidth(fps, FONT);
+            this.cachedFpsWidth = GlHelper.getStringWidth(fps, FONT_SUB);
         }
-        float headerWidth = TITLE_WIDTH + this.cachedFpsWidth;
-        float textWidth = Math.max(headerWidth, this.widestModule);
-        float rowWidth = LEFT_PADDING + textWidth + BAR_TEXT_GAP + BAR_WIDTH + BAR_RIGHT_PADDING;
-        float totalHeight = ROW_HEIGHT + (visibleModules.isEmpty() ? 0.0f
-                : ROW_GAP + visibleModules.size() * ROW_HEIGHT + (visibleModules.size() - 1) * ROW_GAP);
-        this.setWidth(rowWidth);
-        this.setHeight(totalHeight);
+
+        float maxKeyWidth = 0.0f;
+        for (int i = 0; i < visibleModules.size(); i++) {
+            String key = visibleModules.get(i).getBind().getName();
+            if (key != null && !"None".equals(key)) {
+                maxKeyWidth = Math.max(maxKeyWidth, GlHelper.getStringWidth(key, FONT_KEY));
+            }
+        }
+
+        float headerWidth = LOGO_SIZE + 7.0f + this.cachedTitleWidth + 5.0f
+                + this.cachedVersionWidth + 12.0f + this.cachedFpsWidth;
+        float rowTextWidth = LOGO_SIZE + 7.0f + this.widestModule + 8.0f + maxKeyWidth;
+        float contentWidth = Math.max(headerWidth, rowTextWidth);
+        float panelWidth = Math.max(104.0f, PANEL_PADDING * 2.0f + contentWidth);
+        float panelHeight = HEADER_HEIGHT + visibleModules.size() * ROW_HEIGHT + PANEL_PADDING;
+        this.setWidth(panelWidth);
+        this.setHeight(panelHeight);
 
         PoseStack poseStack = render2DEvent.poseStack();
-        float rowY = y;
-        // Backdrop pass: all shadows first, then the frosted glass of every row.
-        RenderUtil.drawShadow(poseStack, x + 1.5f, rowY + 2.5f, rowWidth - 3.0f, ROW_HEIGHT,
-                8, SHADOW_COLOR);
-        RenderUtil.drawBlurredRect(poseStack, x, rowY, rowWidth, ROW_HEIGHT, RADIUS, BLUR_RADIUS, 0.88f, 0);
-        rowY += ROW_HEIGHT + ROW_GAP;
-        for (int i = 0; i < visibleModules.size(); i++) {
-            RenderUtil.drawShadow(poseStack, x + 1.5f, rowY + 2.5f, rowWidth - 3.0f, ROW_HEIGHT,
-                    8, SHADOW_COLOR);
-            RenderUtil.drawBlurredRect(poseStack, x, rowY, rowWidth, ROW_HEIGHT, RADIUS, BLUR_RADIUS, 0.88f, 0);
-            rowY += ROW_HEIGHT + ROW_GAP;
-        }
+        RenderUtil.drawShadow(poseStack, x + 1.5f, y + 2.5f, panelWidth - 3.0f, panelHeight,
+                10, SHADOW_COLOR);
+        RenderUtil.drawBlurredRect(poseStack, x, y, panelWidth, panelHeight, PANEL_RADIUS, BLUR_RADIUS, 0.9f, 0);
+
+        float textX = x + PANEL_PADDING + LOGO_SIZE + 7.0f;
+        float rowY = y + HEADER_HEIGHT;
+        final float panelX = x;
+        final float panelW = panelWidth;
+        final float panelH = panelHeight;
+        final float headerTextX = textX;
+        final float firstRowY = rowY;
+        final float keyWidth = maxKeyWidth;
+        final float moduleWidth = this.widestModule;
+        final String fpsText = this.cachedFpsText;
+        final float fpsWidth = this.cachedFpsWidth;
 
         Renderer.renderConsumer(drawContext -> {
-            this.drawPill(drawContext, x, y, rowWidth, header, fps, 0);
-            float moduleY = y + ROW_HEIGHT + ROW_GAP;
+            try (Paint panel = new Paint()) {
+                panel.setColor(PANEL_COLOR);
+                drawContext.drawRoundedRect(RoundedRectangle.ofXYWHR(panelX, y, panelW, panelH, PANEL_RADIUS), panel);
+            }
+            try (Paint header = new Paint()) {
+                header.setColor(HEADER_COLOR);
+                drawContext.drawRoundedRect(RoundedRectangle.ofXYWHRadii(panelX, y, panelW, HEADER_HEIGHT,
+                        new float[]{PANEL_RADIUS, PANEL_RADIUS, 0.0f, 0.0f, 0.0f, 0.0f,
+                                PANEL_RADIUS, PANEL_RADIUS}), header);
+            }
+            // Hairline rim and a very soft top sheen.
+            try (Paint rim = new Paint()) {
+                rim.setColor(RIM_COLOR);
+                rim.setStrokeCap(Paint.StrokeCap.STROKE);
+                rim.setStrokeWidth(1.0f);
+                drawContext.drawRoundedRect(RoundedRectangle.ofXYWHR(panelX + 0.5f, y + 0.5f,
+                        panelW - 1.0f, panelH - 1.0f, PANEL_RADIUS - 0.5f), rim);
+            }
+            try (Paint sheen = new Paint()) {
+                sheen.setGradCoords(new Paint.GradientCoords(panelX, y, panelX, y + HEADER_HEIGHT,
+                        new Color(255, 255, 255, 24).getRGB(), new Color(255, 255, 255, 0).getRGB()));
+                drawContext.drawRoundedRect(RoundedRectangle.ofXYWHRadii(panelX, y, panelW, HEADER_HEIGHT,
+                        new float[]{PANEL_RADIUS, PANEL_RADIUS, 0.0f, 0.0f, 0.0f, 0.0f,
+                                PANEL_RADIUS, PANEL_RADIUS}), sheen);
+            }
+
+            // Gradient logo tile.
+            try (Paint logo = new Paint()) {
+                logo.setGradCoords(new Paint.GradientCoords(panelX + PANEL_PADDING, y + 3.5f,
+                        panelX + PANEL_PADDING + LOGO_SIZE, y + 3.5f + LOGO_SIZE,
+                        Theme.accentAt(0.0f), Theme.accentAt(42.0f)));
+                drawContext.drawRoundedRect(RoundedRectangle.ofXYWHR(panelX + PANEL_PADDING, y + 3.5f,
+                        LOGO_SIZE, LOGO_SIZE, 4.5f), logo);
+            }
+            float logoTextX = panelX + PANEL_PADDING + (LOGO_SIZE - GlHelper.getStringWidth("Z", FONT_LOGO)) / 2.0f;
+            float logoTextY = y + 3.5f + (LOGO_SIZE - FONT_LOGO.getMetrics().getLineHeight()) / 2.0f
+                    - GlHelper.getFontAscent(FONT_LOGO) - FONT_LOGO.getMetrics().ascent() + 1.5f;
+            GlHelper.drawTextShadowLegacy("Z", logoTextX, logoTextY, FONT_LOGO,
+                    ColorUtil.withAlpha(-1, 1.0f));
+
+            float titleY = y + (HEADER_HEIGHT - FONT_TITLE.getMetrics().getLineHeight()) / 2.0f
+                    - GlHelper.getFontAscent(FONT_TITLE) - FONT_TITLE.getMetrics().ascent() + 0.5f;
+            GlHelper.drawTextShadowLegacy("Zen", headerTextX, titleY, FONT_TITLE,
+                    ColorUtil.withAlpha(-1, 1.0f));
+            GlHelper.drawTextShadowLegacy("v" + ZenClient.VERSION,
+                    headerTextX + this.cachedTitleWidth + 5.0f, titleY + 1.5f, FONT_SUB,
+                    ColorUtil.withAlpha(Theme.accentAt(30.0f), 0.9f));
+            float fpsX = panelX + panelW - PANEL_PADDING - fpsWidth;
+            GlHelper.drawTextShadowLegacy(fpsText, fpsX, titleY + 1.5f, FONT_SUB,
+                    ColorUtil.withAlpha(SUB_TEXT_COLOR, 0.85f));
+
+            // Accent line under the header.
+            try (Paint accent = new Paint()) {
+                accent.setGradCoords(new Paint.GradientCoords(panelX, y + HEADER_HEIGHT - 1.0f,
+                        panelX + panelW, y + HEADER_HEIGHT - 1.0f,
+                        Theme.accentAt(0.0f), Theme.accentAt(65.0f)));
+                drawContext.drawRectXYWH(panelX, y + HEADER_HEIGHT - 1.0f, panelW, 1.0f, accent);
+            }
+
+            float moduleY = firstRowY;
             for (int i = 0; i < visibleModules.size(); i++) {
-                this.drawPill(drawContext, x, moduleY, rowWidth,
-                        visibleModules.get(i).getName(), null, i + 1);
-                moduleY += ROW_HEIGHT + ROW_GAP;
+                Module module = visibleModules.get(i);
+                if (i > 0) {
+                    try (Paint separator = new Paint()) {
+                        separator.setColor(SEPARATOR_COLOR);
+                        drawContext.drawRectXYWH(panelX + PANEL_PADDING, moduleY, panelW - PANEL_PADDING * 2.0f,
+                                0.5f, separator);
+                    }
+                }
+                int accentColor = Theme.accentAt(i * 16.0f);
+                try (Paint dot = new Paint()) {
+                    dot.setColor(accentColor);
+                    drawContext.drawRoundedRect(RoundedRectangle.ofXYWHR(panelX + PANEL_PADDING + 1.0f,
+                            moduleY + (ROW_HEIGHT - ACCENT_DOT) / 2.0f, ACCENT_DOT, ACCENT_DOT,
+                            ACCENT_DOT / 2.0f), dot);
+                }
+                float moduleTextY = moduleY + (ROW_HEIGHT - FONT.getMetrics().getLineHeight()) / 2.0f
+                        - GlHelper.getFontAscent(FONT) - FONT.getMetrics().ascent() + 1.0f;
+                GlHelper.drawTextShadowLegacy(module.getName(), headerTextX, moduleTextY, FONT,
+                        ColorUtil.withAlpha(TEXT_COLOR, 0.96f));
+                String key = module.getBind().getName();
+                if (key != null && !"None".equals(key)) {
+                    float keyX = panelX + panelW - PANEL_PADDING - GlHelper.getStringWidth(key, FONT_KEY);
+                    GlHelper.drawTextShadowLegacy(key, keyX, moduleTextY + 1.0f, FONT_KEY,
+                            ColorUtil.withAlpha(KEY_COLOR, 0.9f));
+                }
+                moduleY += ROW_HEIGHT;
             }
         });
-    }
-
-    private void drawPill(DrawContext drawContext, float x, float y, float width,
-                          String title, String suffix, int accentIndex) {
-        try (Paint body = new Paint()) {
-            body.setColor(BODY_COLOR);
-            drawContext.drawRoundedRect(RoundedRectangle.ofXYWHR(x, y, width, ROW_HEIGHT, RADIUS), body);
-        }
-        try (Paint rim = new Paint()) {
-            rim.setColor(RIM_COLOR);
-            rim.setStrokeCap(Paint.StrokeCap.STROKE);
-            rim.setStrokeWidth(1.0f);
-            drawContext.drawRoundedRect(
-                    RoundedRectangle.ofXYWHR(x + 0.5f, y + 0.5f, width - 1.0f, ROW_HEIGHT - 1.0f, RADIUS - 0.5f),
-                    rim);
-        }
-
-        int accent = Theme.accentAt(accentIndex * 12.0f);
-        try (Paint bar = new Paint()) {
-            bar.setColor(accent);
-            drawContext.drawRoundedRect(RoundedRectangle.ofXYWHR(
-                    x + width - BAR_RIGHT_PADDING - BAR_WIDTH,
-                    y + 4.0f,
-                    BAR_WIDTH,
-                    ROW_HEIGHT - 8.0f,
-                    BAR_WIDTH / 2.0f), bar);
-        }
-
-        // DrawContext adds the font ascent and CustomFont shifts by one more
-        // pixel, so compensate for both to centre the glyph box in the pill.
-        float textY = y + (ROW_HEIGHT - FONT.getMetrics().getLineHeight()) / 2.0f
-                - GlHelper.getFontAscent(FONT) - FONT.getMetrics().ascent() + 1.0f;
-        float textX = x + LEFT_PADDING;
-        GlHelper.drawTextShadowLegacy(title, textX, textY, FONT,
-                suffix == null ? TEXT_COLOR : ColorUtil.withAlpha(accent, 1.0f));
-        if (suffix != null) {
-            float titleWidth = GlHelper.getStringWidth(title, FONT);
-            GlHelper.drawTextShadowLegacy(suffix, textX + titleWidth, textY, FONT, SUB_TEXT_COLOR);
-        }
     }
 
     @Override

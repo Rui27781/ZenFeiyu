@@ -46,8 +46,22 @@ extends Module {
     }
 
     public void mouseDragged(int mouseX, int mouseY) {
-        this.x = (float)mouseX - this.dragOffsetX;
-        this.y = (float)mouseY - this.dragOffsetY;
+        float nextX = (float) mouseX - this.dragOffsetX;
+        float nextY = (float) mouseY - this.dragOffsetY;
+        // 拖出屏幕时贴边，避免 HUD 被拖到看不见的位置。
+        if (mc != null && mc.getWindow() != null) {
+            float maxX = Math.max(0.0f, mc.getWindow().getGuiScaledWidth() - Math.max(4.0f, this.width));
+            float maxY = Math.max(0.0f, mc.getWindow().getGuiScaledHeight() - Math.max(4.0f, this.height));
+            nextX = Math.max(0.0f, Math.min(maxX, nextX));
+            nextY = Math.max(0.0f, Math.min(maxY, nextY));
+            // 靠近边缘时轻微吸附，方便对齐。
+            if (nextX < 4.0f) nextX = 0.0f;
+            if (nextY < 4.0f) nextY = 0.0f;
+            if (nextX > maxX - 4.0f) nextX = maxX;
+            if (nextY > maxY - 4.0f) nextY = maxY;
+        }
+        this.x = nextX;
+        this.y = nextY;
     }
 
     public boolean isHovered(int mouseX, int mouseY) {

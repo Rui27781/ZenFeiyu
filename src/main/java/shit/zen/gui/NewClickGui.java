@@ -14,6 +14,7 @@ import shit.zen.gui.newclickgui.SearchBar;
 import shit.zen.gui.newclickgui.Theme;
 import shit.zen.gui.newclickgui.ThemePopup;
 import shit.zen.modules.Category;
+import shit.zen.modules.impl.render.NoBackground;
 import shit.zen.render.FontStore;
 import shit.zen.utils.animation.SmoothAnimationTimer;
 import shit.zen.utils.math.Easings;
@@ -95,6 +96,7 @@ extends Screen {
         }
 
         String query = this.getSearchQuery();
+        this.renderBackdrop(guiGraphics, closeProgress);
         for (CategoryPanel categoryPanel : categoryPanels) {
             categoryPanel.setSearchQuery(query);
         }
@@ -127,17 +129,28 @@ extends Screen {
         }
     }
 
+    private void renderBackdrop(GuiGraphics guiGraphics, float alpha) {
+        if (NoBackground.shouldHide(this)) {
+            return;
+        }
+        // 与 NeoRaven 一致的深色毛玻璃底：一层半透明黑 + 柔化后的游戏画面。
+        guiGraphics.fill(0, 0, this.width, this.height,
+                ColorUtil.fromARGB(5, 6, 10, (int) (150.0f * alpha)));
+        RenderUtil.drawBlurredRect(guiGraphics.pose(), 0.0f, 0.0f, this.width, this.height,
+                0.0f, 16.0f, 0.55f * alpha, ColorUtil.fromARGB(8, 9, 13, 255));
+    }
+
     private void renderThemeButton(GuiGraphics guiGraphics, int mouseX, int mouseY, float alpha) {
         this.themeButtonHovered = CursorUtil.isInBounds(mouseX, mouseY, this.themeButtonX, this.themeButtonY,
                 THEME_BUTTON_SIZE, THEME_BUTTON_SIZE);
         RenderUtil.drawRoundedRect(guiGraphics.pose(), this.themeButtonX, this.themeButtonY, THEME_BUTTON_SIZE,
-                THEME_BUTTON_SIZE, 6.0f, ColorUtil.withAlpha(CategoryPanel.BG_COLOR, alpha));
+                THEME_BUTTON_SIZE, 8.0f, ColorUtil.withAlpha(CategoryPanel.BG_COLOR, alpha));
         if (this.themePopup.isOpen()) {
             RenderUtil.drawRoundedRect(guiGraphics.pose(), this.themeButtonX, this.themeButtonY, THEME_BUTTON_SIZE,
-                    THEME_BUTTON_SIZE, 6.0f, ColorUtil.withAlpha(Theme.accent(), 0.2f * alpha));
+                    THEME_BUTTON_SIZE, 8.0f, ColorUtil.withAlpha(Theme.accent(), 0.2f * alpha));
         } else if (this.themeButtonHovered) {
             RenderUtil.drawRoundedRect(guiGraphics.pose(), this.themeButtonX, this.themeButtonY, THEME_BUTTON_SIZE,
-                    THEME_BUTTON_SIZE, 6.0f, ColorUtil.withAlpha(-1, 0.08f * alpha));
+                    THEME_BUTTON_SIZE, 8.0f, ColorUtil.withAlpha(-1, 0.08f * alpha));
         }
         FontStore.MATERIAL_20.drawStringCentered(guiGraphics.pose(), "\ue40a",
                 this.themeButtonX + THEME_BUTTON_SIZE / 2.0f,

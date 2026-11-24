@@ -118,24 +118,38 @@ extends UIElement {
         }
         RenderUtil.drawFilledRect(poseStack, this.posX + 1.0f, this.posY + 20.0f, 118.0f, this.totalHeight - 20.0f, ColorUtil.withAlpha(BG_COLOR, expandAmount * alpha));
         float hoverAmount = this.hoveredTimer.getValueF();
+        enabledAmount = this.enabledTimer.getValueF();
+        int rowAccent = Theme.accent();
+        if (enabledAmount > 0.0f) {
+            // 开启的模块铺一层极淡的强调色，并保留左侧色条，贴近 NeoRaven 的列表观感。
+            RenderUtil.drawFilledRect(poseStack, this.posX + 0.5f, this.posY, 119.0f, 20.0f,
+                    ColorUtil.withAlpha(rowAccent, 0.10f * alpha * enabledAmount));
+        }
         if (hoverAmount > 0.0f) {
-            RenderUtil.drawFilledRect(poseStack, this.posX + 0.5f, this.posY, 119.0f, 20.0f, ColorUtil.withAlpha(-1, 0.1f * alpha * hoverAmount));
+            RenderUtil.drawFilledRect(poseStack, this.posX + 0.5f, this.posY, 119.0f, 20.0f,
+                    ColorUtil.withAlpha(-1, 0.06f * alpha * hoverAmount));
+        }
+        if (enabledAmount > 0.0f) {
+            RenderUtil.drawRoundedRect(poseStack, this.posX + 2.0f, this.posY + 5.0f, 2.0f, 10.0f, 1.0f,
+                    ColorUtil.withAlpha(rowAccent, alpha * enabledAmount));
         }
         CustomFont nameFont = GuiI18n.isChinese() ? FontStore.PINGFANG_16 : FontStore.AXIFORMA_REGULAR_16;
         CustomFont boldNameFont = GuiI18n.isChinese() ? FontStore.PINGFANG_16 : FontStore.AXIFORMA_BOLD_16;
         String nameText = GuiI18n.translateModule(this.module.getName());
-        if (1.0f - (enabledAmount = this.enabledTimer.getValueF()) > 0.0f) {
+        float textLeft = this.posX + 9.0f;
+        if (1.0f - enabledAmount > 0.0f) {
+            float disabledWidth = nameFont.getStringWidth(nameText);
             this.drawHighlightedName(poseStack, nameFont, nameText,
-                    this.posX + 60.0f, this.posY + (20.0f - nameFont.getFontHeight()) / 2.0f,
-                    -1, Theme.accent(), alpha * (1.0f - enabledAmount) * 0.6f);
+                    textLeft + disabledWidth / 2.0f, this.posY + (20.0f - nameFont.getFontHeight()) / 2.0f,
+                    ColorUtil.fromRGB(196, 200, 212), rowAccent, alpha * (1.0f - enabledAmount) * 0.8f);
         }
         if (enabledAmount > 0.0f) {
-            int moduleAccent = Theme.accentAt(Math.floorMod(this.module.getName().hashCode(), 360));
             titleWidth = boldNameFont.getStringWidth(nameText);
             titleY = this.posY + (20.0f - boldNameFont.getFontHeight()) / 2.0f;
-            RenderUtil.drawShadow(poseStack, this.posX + (120.0f - titleWidth) / 2.0f, titleY + boldNameFont.getFontHeight() / 4.0f, titleWidth, boldNameFont.getFontHeight() / 2.0f, 12, ColorUtil.withAlpha(moduleAccent, alpha * enabledAmount * 0.36f));
+            RenderUtil.drawShadow(poseStack, textLeft, titleY + 1.5f, titleWidth, boldNameFont.getFontHeight() / 2.0f,
+                    10, ColorUtil.withAlpha(rowAccent, alpha * enabledAmount * 0.30f));
             this.drawHighlightedName(poseStack, boldNameFont, nameText,
-                    this.posX + 60.0f, titleY, moduleAccent, -1, alpha * enabledAmount);
+                    textLeft + titleWidth / 2.0f, titleY, -1, rowAccent, alpha * enabledAmount);
         }
         if (!this.module.getSettings().isEmpty()) {
             String arrowIcon = String.valueOf('\ueb4e');
@@ -145,6 +159,10 @@ extends UIElement {
             RenderHelper.pushRotateAround(poseStack, arrowX + titleY / 2.0f, arrowY + FontStore.MATERIAL_20.getFontHeight() / 2.0f - 1.0f, 180.0f * expandAmount);
             FontStore.MATERIAL_20.drawString(poseStack, arrowIcon, arrowX, arrowY, ColorUtil.withAlpha(-1, (0.8f - 0.3f * expandAmount) * alpha));
             RenderHelper.popPose(poseStack);
+        } else if (enabledAmount > 0.0f) {
+            // 无设置项的模块用一个小圆点表示开启状态。
+            RenderUtil.drawRoundedRect(poseStack, this.posX + 111.0f, this.posY + 8.5f, 3.0f, 3.0f, 1.5f,
+                    ColorUtil.withAlpha(rowAccent, alpha * enabledAmount));
         }
         if (this.isExpanded) {
             titleWidth = this.posY + 20.0f;

@@ -41,10 +41,10 @@ extends UIElement {
             RenderUtil.drawShadow(poseStack, this.x - 1.0f, this.y - 1.0f, this.width + 2.0f, this.height + 2.0f, 10,
                     ColorUtil.withAlpha(Theme.accent(), 0.35f * alpha * focusAmount));
         }
-        RenderUtil.drawRoundedRect(poseStack, this.x, this.y, this.width, this.height, 6.0f,
+        RenderUtil.drawRoundedRect(poseStack, this.x, this.y, this.width, this.height, 8.0f,
                 ColorUtil.withAlpha(CategoryPanel.BG_COLOR, alpha));
-        RenderUtil.drawRoundedRect(poseStack, this.x + 0.5f, this.y + 0.5f, this.width - 1.0f, this.height - 1.0f, 5.5f,
-                ColorUtil.withAlpha(ColorUtil.fromRGB(31, 31, 31), alpha));
+        RenderUtil.drawRoundedRect(poseStack, this.x + 0.5f, this.y + 0.5f, this.width - 1.0f, this.height - 1.0f, 7.5f,
+                ColorUtil.withAlpha(ColorUtil.fromARGB(23, 24, 31, 235), alpha));
         if (focusAmount > 0.0f) {
             RenderUtil.drawRoundedRect(poseStack, this.x + 1.0f, this.y + this.height - 2.0f,
                     (this.width - 2.0f) * focusAmount, 1.5f, 0.75f,

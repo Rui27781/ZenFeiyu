@@ -82,6 +82,7 @@ import shit.zen.modules.impl.render.LowHealth;
 import shit.zen.modules.impl.render.Meteors;
 import shit.zen.modules.impl.render.NameProtect;
 import shit.zen.modules.impl.render.NameTags;
+import shit.zen.modules.impl.render.NoBackground;
 import shit.zen.modules.impl.render.NoHurtCam;
 import shit.zen.modules.impl.render.Notifications;
 import shit.zen.modules.impl.render.OldHitting;
@@ -186,6 +187,7 @@ public class ModuleManager extends ClientBase {
         this.register(new Meteors());
         this.register(new NameProtect());
         this.register(new NameTags());
+        this.register(new NoBackground());
         this.register(new NoHurtCam());
         this.register(new Notifications());
         this.register(new OldHitting());
