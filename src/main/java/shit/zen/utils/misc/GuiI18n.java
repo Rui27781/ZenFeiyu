@@ -255,6 +255,10 @@ public final class GuiI18n {
         put(SETTINGS, "Auto Mine Highlight", "目标高亮");
         put(SETTINGS, "Auto Mine Walk", "自动走过去");
         put(SETTINGS, "Auto Mine Walk Range", "接近范围");
+        put(SETTINGS, "Auto Mine Break Obstacles", "自动挖开挡路");
+        put(SETTINGS, "Auto Mine Pickup", "自动拾取矿物");
+        put(SETTINGS, "Auto Mine Pickup Only Target", "只拾取目标矿物");
+        put(SETTINGS, "Auto Mine Pickup Range", "拾取范围");
         put(SETTINGS, "Auto Mine Verify Ore", "挖掘前校验真矿");
         put(SETTINGS, "Nearest", "最近优先");
         put(SETTINGS, "Valuable", "价值优先");
