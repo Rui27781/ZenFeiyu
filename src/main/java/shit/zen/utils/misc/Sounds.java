@@ -106,7 +106,8 @@ public final class Sounds extends ClientBase {
             return;
         }
         if ("Smooth".equals(style)) {
-            playEvent(SoundEvents.EXPERIENCE_ORB_PICKUP.value(), 0.7f, (enabled ? 1.35f : 1.0f) + pitchJitter);
+            // EXPERIENCE_ORB_PICKUP 在 1.20.1 是 SoundEvent 而不是 Holder，不能再取 value()。
+            playEvent(SoundEvents.EXPERIENCE_ORB_PICKUP, 0.7f, (enabled ? 1.35f : 1.0f) + pitchJitter);
             return;
         }
         if ("Celestial".equals(style)) {

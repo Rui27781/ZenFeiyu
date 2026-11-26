@@ -87,7 +87,7 @@ public class HudManager {
         }
         // 打开聊天栏时进入 HUD 编辑模式：所有可拖动 UI 都显示描边和名称，
         // 左键按住即可移动，松开后位置由 ValuesConfig 自动保存。
-        if (mc.screen instanceof ChatScreen) {
+        if (ClientBase.mc.screen instanceof ChatScreen) {
             this.drawHudEditHints(render2DEvent);
         }
     }
@@ -97,7 +97,7 @@ public class HudManager {
         String hint = GuiI18n.isChinese() ? "HUD 编辑：拖动即可调整位置" : "HUD editor: drag to reposition";
         CustomFont hintFont = GuiI18n.isChinese() ? FontStore.PINGFANG_16 : FontStore.AXIFORMA_REGULAR_16;
         float hintWidth = hintFont.getStringWidth(hint) + 16.0f;
-        float hintX = ((float) mc.getWindow().getGuiScaledWidth() - hintWidth) / 2.0f;
+        float hintX = ((float) ClientBase.mc.getWindow().getGuiScaledWidth() - hintWidth) / 2.0f;
         RenderUtil.drawRoundedRect(event.poseStack(), hintX, 6.0f, hintWidth, 18.0f, 6.0f,
                 ColorUtil.withAlpha(0xFF101014, 0.85f));
         hintFont.drawString(event.poseStack(), hint, hintX + 8.0f,
